@@ -10,7 +10,7 @@
 
 static const int tickrate = 240;
 static const int usec_per_tick = (1000 * 1000) / tickrate;
-static const int streambuf_size = 1024;
+#define STREAMBUF_SIZE (1024)
 
 struct tick_params {
     s32 semaphore;
@@ -23,7 +23,7 @@ static sceCslCtx midi_ctx = {};
 static sceCslBuffGrp midi_grp[2] = {};
 static sceCslBuffCtx m_in_buf_ctx[2] = {}, m_out_buf_ctx[1] = {};
 
-static u8 stream_buf[streambuf_size + sizeof(sceCslMidiStream)] = {};
+static u8 stream_buf[STREAMBUF_SIZE + sizeof(sceCslMidiStream)];
 static sceMidiEnv midi_env = {};
 
 static sceCslCtx synth_ctx = {};
