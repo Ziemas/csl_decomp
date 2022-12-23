@@ -2,6 +2,7 @@
 
 #include "cslmidi.h"
 #include "modhsyn.h"
+#include "modmidi.h"
 #include "sce_modmidi.h"
 
 #include <ioman.h>
@@ -23,12 +24,12 @@ struct tick_params {
 
 static struct tick_params tick_state;
 
-static sceCslCtx midi_ctx = {};
-static sceCslBuffGrp midi_grp[2] = {};
-static sceCslBuffCtx m_in_buf_ctx[2] = {}, m_out_buf_ctx[1] = {};
+static struct CslCtx midi_ctx = {};
+static struct CslBuffGrp midi_grp[2] = {};
+static struct CslBuffCtx m_in_buf_ctx[2] = {}, m_out_buf_ctx[1] = {};
 
-static u8 stream_buf[STREAMBUF_SIZE + sizeof(sceCslMidiStream)];
-static sceMidiEnv midi_env = {};
+static u8 stream_buf[STREAMBUF_SIZE + sizeof(struct CslMidiStream)];
+static struct MidiEnv midi_env = {};
 
 static sceCslCtx synth_ctx = {};
 static sceCslBuffGrp synth_grp = {};
@@ -44,7 +45,7 @@ tick_thread(void *param)
 
 	while (1) {
 		WaitSema(p->semaphore);
-		sceMidi_ATick(&midi_ctx);
+		Midi_ATick(&midi_ctx);
 		sceHSyn_ATick(&synth_ctx);
 	}
 }
@@ -115,9 +116,9 @@ init()
 	midi_grp[1].buffNum = 1; // 1 output port
 	midi_grp[1].buffCtx = m_out_buf_ctx;
 	m_out_buf_ctx[0].buff = stream_buf; // output stream for hsyn
-	((sceCslMidiStream *)stream_buf)->buffsize = STREAMBUF_SIZE +
-	    sizeof(sceCslMidiStream);
-	((sceCslMidiStream *)stream_buf)->validsize = 0;
+	((struct CslMidiStream *)stream_buf)->buffsize = STREAMBUF_SIZE +
+	    sizeof(struct CslMidiStream);
+	((struct CslMidiStream *)stream_buf)->validsize = 0;
 
 	synth_ctx.buffGrpNum = 1;
 	synth_ctx.buffGrp = &synth_grp;
@@ -130,7 +131,7 @@ init()
 	if (ret != sceHSynNoError) {
 		printf("hsyn init err %d\n", ret);
 	}
-	ret = sceMidi_Init(&midi_ctx, usec_per_tick);
+	ret = Midi_Init(&midi_ctx, usec_per_tick);
 	if (ret != sceMidiNoError) {
 		printf("midi init err %d\n", ret);
 	}
@@ -140,22 +141,25 @@ init()
 	return 0;
 }
 
-s32 *
+u8 *
 read_file(const char *filename)
 {
 	io_stat_t stat;
+	u8 *buffer;
+	s32 fd;
+
 	getstat(filename, &stat);
 
-	u8 *buffer = AllocSysMemory(ALLOC_FIRST, stat.size, NULL);
+	buffer = AllocSysMemory(ALLOC_FIRST, (int)stat.size, NULL);
 	if (buffer == NULL) {
 		printf("Alloc failed\n");
-		return -1;
+		return (u8 *)-1;
 	}
 
-	u32 fd = open(filename, O_RDONLY);
+	fd = open(filename, O_RDONLY);
 	if (fd < 0) {
 		printf("Opening testfile failed\n");
-		return -1;
+		return (u8 *)-1;
 	}
 
 	read(fd, buffer, stat.size);
@@ -175,6 +179,7 @@ struct entry_header {
 int
 _start()
 {
+	struct entry_header *header;
 	s32 fd, size, total = 0;
 	u8 *buffer;
 	s32 ret;
@@ -183,7 +188,7 @@ _start()
 	init();
 
 	buffer = (u8 *)read_file("host:BG_116.snd");
-	struct entry_header *header = (struct entry_header *)buffer;
+	header = (struct entry_header *)buffer;
 
 	printf("name %s\n", header->name);
 	hd = (u8 *)header + header->header_byte_count;
@@ -207,33 +212,33 @@ _start()
 	header = (struct entry_header *)((u8 *)header +
 	    header->entry_byte_count + header->header_byte_count);
 	printf("name %s\n", header->name);
-	sq = (u8 *)header + header->header_byte_count;
+	sq = (s32 *)((u8 *)header + header->header_byte_count);
 
 	m_in_buf_ctx[0].buff = sq;
-	ret = sceMidi_Load(&midi_ctx, 0);
-	if (ret != sceMidiNoError) {
+	ret = Midi_Load(&midi_ctx, 0);
+	if (ret != MidiNoError) {
 		printf("midi load err %d\n", ret);
 	}
 
-	for (int ch = 0; ch < sceMidiNumMidiCh; ch++) {
+	for (int ch = 0; ch < MidiNumMidiCh; ch++) {
 		midi_env.outPort[ch] = 1 << 0;
 	}
 
-	ret = sceMidi_SelectMidi(&midi_ctx, 0, 0);
-	if (ret != sceMidiNoError) {
-		printf("midi err %d\n", ret);
-	}
-	ret = sceMidi_MidiSetLocation(&midi_ctx, 0, 0);
-	if (ret != sceMidiNoError) {
-		printf("midi err %d\n", ret);
-	}
-	ret = sceMidi_MidiPlaySwitch(&midi_ctx, 0, sceMidi_MidiPlayStart);
-	if (ret != sceMidiNoError) {
-		printf("midi err %d\n", ret);
-	}
+	// ret = Midi_SelectMidi(&midi_ctx, 0, 0);
+	// if (ret != MidiNoError) {
+	//	printf("midi err %d\n", ret);
+	// }
+	// ret = Midi_MidiSetLocation(&midi_ctx, 0, 0);
+	// if (ret != MidiNoError) {
+	//	printf("midi err %d\n", ret);
+	// }
+	// ret = Midi_MidiPlaySwitch(&midi_ctx, 0, sceMidi_MidiPlayStart);
+	// if (ret != MidiNoError) {
+	//	printf("midi err %d\n", ret);
+	// }
 
-	sceMidi_MidiSetVolume(&midi_ctx, 0, sceMidi_MidiSetVolume_MasterVol,
-	    sceMidi_Volume0db);
+	// Midi_MidiSetVolume(&midi_ctx, 0, sceMidi_MidiSetVolume_MasterVol,
+	//     sceMidi_Volume0db);
 	sceHSyn_SetVolume(&synth_ctx, 0, sceHSyn_Volume_0db);
 
 	return 0;

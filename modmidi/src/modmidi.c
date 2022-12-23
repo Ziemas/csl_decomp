@@ -6,8 +6,8 @@
 #include <stdio.h>
 
 int gTickInterval;
-int gDebug = 0;
-int gVerbose = 0;
+int gDebug = 1;
+int gVerbose = 1;
 unsigned short channelMasks[16] = {
 	1 << 0,
 	1 << 1,
@@ -27,6 +27,12 @@ unsigned short channelMasks[16] = {
 	1 << 15,
 };
 struct MidiLoopInfo loopInfo = { 0 };
+
+int
+Midi_ATick(struct CslCtx *ctx)
+{
+	return 0;
+}
 
 static int
 verifySeqChunk(unsigned int a, unsigned int b, const char *comp_a,

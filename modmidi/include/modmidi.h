@@ -9,6 +9,10 @@
 
 enum {
 	MidiStatus_Loaded = 1,
+
+	MidiNoError = 0,
+
+	MidiNumMidiCh = 15,
 };
 
 struct CslBuffCtx {
@@ -65,5 +69,9 @@ struct MidiEnv {
 	unsigned int markCallBackPrivateData;
 	unsigned char system[MIDI_SYSTEM_MAX_SIZE];
 };
+
+int Midi_Load(struct CslCtx *ctx, int port);
+int Midi_Init(struct CslCtx *ctx, int interval);
+int Midi_ATick(struct CslCtx *ctx);
 
 #endif // MODMIDI_H_
