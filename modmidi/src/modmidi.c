@@ -56,10 +56,76 @@ Midi_ATick(struct CslCtx *ctx)
 	return 0;
 }
 
+static struct CslBuffCtx *
+getOutPortCtx(unsigned int port, struct CslBuffGrp *bufGrp)
+{
+	if (port >= bufGrp->buffNum) {
+		return NULL;
+	}
+
+	return &bufGrp->buffCtx[port];
+}
+
 static void
 sendChMsg(struct MidiEnv *env, struct MidiSystem *system,
     struct CslBuffGrp *outGroup, unsigned int msg, unsigned int msgLen)
 {
+	struct CslBuffCtx *bufCtx;
+	struct CslMidiStream *stream;
+	unsigned int chan, portBits;
+	unsigned char *out;
+	msg &= 0x7F7FFF;
+
+	if (env->chMsgCallBack) {
+		msg = env->chMsgCallBack(msg, env->chMsgCallBackPrivateData);
+		if (msg == 0) {
+			return;
+		}
+	}
+
+	chan = msg & 0xf;
+	system->activeChan |= channelMasks[chan];
+
+	if (!outGroup) {
+		return;
+	}
+
+	portBits = env->outPort[chan];
+	if (!portBits) {
+		return;
+	}
+
+	for (int port = 0; portBits != 0; port++, portBits >>= 1) {
+		if ((portBits & 1) == 0) {
+			continue;
+		}
+
+		bufCtx = getOutPortCtx(port, outGroup);
+		if (!bufCtx) {
+			continue;
+		}
+
+		stream = (struct CslMidiStream *)bufCtx->buff;
+		if (!stream) {
+			continue;
+		}
+
+		if (stream->buffsize < stream->validsize + msgLen + 8) {
+			if (gVerbose) {
+				printf("sendChMsg Buffer OverRun\n");
+			}
+
+			continue;
+		}
+
+		out = &stream->data[stream->validsize];
+		stream->validsize += msgLen;
+
+		for (int j = 0; j < msgLen; j++) {
+			*out++ = msg & 0xff;
+			msg >>= 8;
+		}
+	}
 }
 
 static void
