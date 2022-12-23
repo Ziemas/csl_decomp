@@ -1,2 +1,2 @@
 ((nil . ((indent-tabs-mode . t)
-         (tab-width . 8))))
+         (tab-width . 4))))

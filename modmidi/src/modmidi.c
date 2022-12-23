@@ -30,7 +30,7 @@ struct MidiLoopInfo loopInfo = { 0 };
 
 static int
 selectPort(struct CslCtx *ctx, int port, struct MidiEnv **envOut,
-    struct MidiSystem **sysOut)
+	struct MidiSystem **sysOut)
 {
 	if (!ctx) {
 		return 0;
@@ -68,7 +68,7 @@ getOutPortCtx(unsigned int port, struct CslBuffGrp *bufGrp)
 
 static void
 sendChMsg(struct MidiEnv *env, struct MidiSystem *system,
-    struct CslBuffGrp *outGroup, unsigned int msg, unsigned int msgLen)
+	struct CslBuffGrp *outGroup, unsigned int msg, unsigned int msgLen)
 {
 	struct CslBuffCtx *bufCtx;
 	struct CslMidiStream *stream;
@@ -147,7 +147,7 @@ getChanVol(struct MidiSystem *system, int ch)
 {
 	// clang-format off
 	s32 ret = (system->unkPerChanVolume[ch] * system->chanelVolume[ch] *
-		      system->masterVolume) >> 14;
+				  system->masterVolume) >> 14;
 	// clang-format on
 
 	if (ret >= 0x80) {
@@ -158,9 +158,8 @@ getChanVol(struct MidiSystem *system, int ch)
 
 static void
 sendChVolume(struct MidiEnv *env, struct MidiSystem *system,
-    struct CslBuffGrp *outGroup, int ch)
+	struct CslBuffGrp *outGroup, int ch)
 {
-
 	unsigned int chanVol = getChanVol(system, ch);
 	sendChMsg(env, system, outGroup, ch | (chanVol << 16) | 0x7B0, 3);
 }
@@ -174,48 +173,45 @@ channelSetup(struct MidiEnv *env, struct CslBuffGrp *outGroup)
 		ch = &system->chParams[i];
 
 		if ((ch->bank & 0x80) == 0) {
-			sendChMsg(env, system, outGroup,
-			    i | (ch->bank << 16) | 0xB0, 3);
+			sendChMsg(env, system, outGroup, i | (ch->bank << 16) | 0xB0, 3);
 		}
 		if ((ch->program & 0x80) == 0) {
-			sendChMsg(env, system, outGroup,
-			    i | (ch->program << 8) | 0xC0, 2);
+			sendChMsg(env, system, outGroup, i | (ch->program << 8) | 0xC0, 2);
 		}
 		if ((ch->pitchModDepth & 0x80) == 0) {
 			sendChMsg(env, system, outGroup,
-			    i | (ch->pitchModDepth << 16) | 0x1B0, 3);
+				i | (ch->pitchModDepth << 16) | 0x1B0, 3);
 		}
 		if ((ch->ampModDepth & 0x80) == 0) {
 			sendChMsg(env, system, outGroup,
-			    i | (ch->ampModDepth << 16) | 0x2B0, 3);
+				i | (ch->ampModDepth << 16) | 0x2B0, 3);
 		}
 		if ((ch->portamentTime & 0x80) == 0) {
 			sendChMsg(env, system, outGroup,
-			    i | (ch->portamentTime << 16) | 0x3B0, 3);
+				i | (ch->portamentTime << 16) | 0x3B0, 3);
 		}
 		if ((ch->volume & 0x80) == 0) {
 			system->unkPerChanVolume[i] = ch->volume;
 			sendChVolume(env, system, outGroup, i);
 		}
 		if ((ch->pan & 0x80) == 0) {
-			sendChMsg(env, system, outGroup,
-			    i | (ch->pan << 16) | 0xAB0, 3);
+			sendChMsg(env, system, outGroup, i | (ch->pan << 16) | 0xAB0, 3);
 		}
 		if ((ch->expression & 0x80) == 0) {
-			sendChMsg(env, system, outGroup,
-			    i | (ch->expression << 16) | 0xBB0, 3);
+			sendChMsg(env, system, outGroup, i | (ch->expression << 16) | 0xBB0,
+				3);
 		}
 		if ((ch->damper & 0x80) == 0) {
-			sendChMsg(env, system, outGroup,
-			    i | (ch->damper << 16) | 0x40B0, 3);
+			sendChMsg(env, system, outGroup, i | (ch->damper << 16) | 0x40B0,
+				3);
 		}
 		if ((ch->portamentSwitch & 0x80) == 0) {
 			sendChMsg(env, system, outGroup,
-			    i | (ch->portamentSwitch << 16) | 0x41B0, 3);
+				i | (ch->portamentSwitch << 16) | 0x41B0, 3);
 		}
 		if ((ch->pitchBend & 0x8080) == 0) {
-			sendChMsg(env, system, outGroup,
-			    i | (ch->pitchBend << 8) | 0xE0, 3);
+			sendChMsg(env, system, outGroup, i | (ch->pitchBend << 8) | 0xE0,
+				3);
 		}
 	}
 }
@@ -249,7 +245,7 @@ Midi_MidiPlaySwitch(struct CslCtx *ctx, int port, int command)
 
 	if (command == MidiPlay_Start) {
 		if ((env->status & (MidiStatus_Unk | MidiStatus_Loaded)) !=
-		    MidiStatus_Loaded) {
+			MidiStatus_Loaded) {
 			return -1;
 		}
 
@@ -267,9 +263,9 @@ Midi_MidiPlaySwitch(struct CslCtx *ctx, int port, int command)
 static void
 updateTempo(struct MidiSystem *system)
 {
-	system->usecPerPPQN =
-	    (((system->usecPerQuarter << 7) / system->Division) << 8) /
-	    system->relativeTempo;
+	system->usecPerPPQN = (((system->usecPerQuarter << 7) / system->Division)
+							  << 8) /
+		system->relativeTempo;
 }
 
 static int
@@ -341,8 +337,27 @@ systemReset(struct MidiEnv *env)
 
 static int
 playEnv(struct MidiEnv *env, struct MidiSystem *system,
-    struct CslBuffGrp *output)
+	struct CslBuffGrp *output)
 {
+	unsigned int status;
+	if (env->position < system->tick) {
+		return 1;
+	}
+	while (1) {
+		status = *system->seqPosition++;
+		if ((status & 0x80) != 0) {
+
+		} else {
+			if (!system->runningStatus) {
+				if (gVerbose) {
+					printf("playEnv running status error %02x %02x\n", status,
+						system->runningStatus);
+				}
+				return 0;
+			}
+		}
+	}
+
 	return 0;
 }
 
@@ -388,7 +403,7 @@ Midi_MidiSetLocation(struct CslCtx *ctx, int port, unsigned int position)
 
 int
 Midi_MidiSetVolume(struct CslCtx *ctx, int port, unsigned int channel,
-    char volume)
+	char volume)
 {
 	struct MidiSystem *system;
 	struct MidiEnv *env;
@@ -405,8 +420,7 @@ Midi_MidiSetVolume(struct CslCtx *ctx, int port, unsigned int channel,
 		system->masterVolume = volume;
 		if ((env->status & MidiStatus_Playing) != 0) {
 			for (int i = 0; i < MidiNumMidiCh; i++) {
-				sendChVolume(env, system,
-				    &ctx->buffGrp[MidiOutBufGroup], i);
+				sendChVolume(env, system, &ctx->buffGrp[MidiOutBufGroup], i);
 			}
 		}
 
@@ -454,7 +468,7 @@ Midi_SelectMidi(struct CslCtx *ctx, int port, int block)
 	}
 
 	midiData = (struct SeqMidiDataBlock *)((char *)midi +
-	    midi->midiOffsetAddr[block]);
+		midi->midiOffsetAddr[block]);
 
 	if (midiData->sequenceDataOffset == -1) {
 		return -1;
@@ -462,8 +476,8 @@ Midi_SelectMidi(struct CslCtx *ctx, int port, int block)
 
 	system->sqCompBlock = midiData->compBlock;
 	if (midiData->compBlock[0].compOption != 1 ||
-	    !midiData->compBlock[0].compTableSize ||
-	    midiData->sequenceDataOffset < 0xC) {
+		!midiData->compBlock[0].compTableSize ||
+		midiData->sequenceDataOffset < 0xC) {
 		system->sqCompBlock = NULL;
 	}
 
@@ -473,7 +487,7 @@ Midi_SelectMidi(struct CslCtx *ctx, int port, int block)
 	}
 
 	system->sequenceData = (unsigned char *)midiData +
-	    midiData->sequenceDataOffset;
+		midiData->sequenceDataOffset;
 	system->usecPerQuarter = 500000;
 	system->relativeTempo = 256;
 	system->Division = midiData->Division;
@@ -489,22 +503,22 @@ Midi_SelectMidi(struct CslCtx *ctx, int port, int block)
 
 static int
 verifySeqChunk(unsigned int a, unsigned int b, const char *comp_a,
-    const char *comp_b)
+	const char *comp_b)
 {
 	char *pa = (char *)&a, *pb = (char *)&b;
 
 	// clang-format off
 	if (gDebug) {
-	    printf("[%c%c%c%c] [%c%c%c%c]\n",
-		   (a >> 24) & 0xff,
-		   (a >> 16) & 0xff,
-		   (a >> 8) & 0xff,
-		   (a >> 0) & 0xff,
+		printf("[%c%c%c%c] [%c%c%c%c]\n",
+			(a >> 24) & 0xff,
+			(a >> 16) & 0xff,
+			(a >> 8) & 0xff,
+			(a >> 0) & 0xff,
 
-		   (b >> 24) & 0xff,
-		   (b >> 16) & 0xff,
-		   (b >> 8) & 0xff,
-		   (b >> 0) & 0xff);
+			(b >> 24) & 0xff,
+			(b >> 16) & 0xff,
+			(b >> 8) & 0xff,
+			(b >> 0) & 0xff);
 	}
 	// clang-format on
 
@@ -577,13 +591,13 @@ Midi_Load(struct CslCtx *ctx, int port)
 
 	song = (struct SeqSongChunk *)((char *)seq + header->seSongChunkAddr);
 	if (header->seSongChunkAddr == -1 ||
-	    !verifySeqChunk(song->Creator, song->Type, "SCEI", "Song")) {
+		!verifySeqChunk(song->Creator, song->Type, "SCEI", "Song")) {
 		song = NULL;
 	}
 
 	midi = (struct SeqMidiChunk *)((char *)seq + header->midiChunkAddr);
 	if (header->midiChunkAddr == -1 ||
-	    !verifySeqChunk(midi->Creator, midi->Type, "SCEI", "Midi")) {
+		!verifySeqChunk(midi->Creator, midi->Type, "SCEI", "Midi")) {
 		return -1;
 	}
 
@@ -624,8 +638,8 @@ Midi_Init(struct CslCtx *ctx, int interval)
 	}
 
 	if (ctx->buffGrp[MidiInBufGroup].buffNum > 1) {
-		for (int i = 1, port = 0;
-		     i < ctx->buffGrp[MidiInBufGroup].buffNum; i += 2, port++) {
+		for (int i = 1, port = 0; i < ctx->buffGrp[MidiInBufGroup].buffNum;
+			 i += 2, port++) {
 			env = ctx->buffGrp[MidiInBufGroup].buffCtx[i].buff;
 
 			if (env) {
@@ -645,10 +659,9 @@ Midi_Init(struct CslCtx *ctx, int interval)
 	}
 
 	if (ctx->buffGrp[MidiOutBufGroup].buffNum &&
-	    ctx->buffGrp[MidiOutBufGroup].buffCtx) {
+		ctx->buffGrp[MidiOutBufGroup].buffCtx) {
 		stream = ctx->buffGrp[MidiOutBufGroup].buffCtx->buff;
-		for (int i = 0; i < ctx->buffGrp[MidiOutBufGroup].buffNum;
-		     i++) {
+		for (int i = 0; i < ctx->buffGrp[MidiOutBufGroup].buffNum; i++) {
 			if (stream) {
 				stream->validsize = 0;
 			}

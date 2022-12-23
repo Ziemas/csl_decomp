@@ -31,6 +31,13 @@ static struct CslBuffCtx m_in_buf_ctx[2] = {}, m_out_buf_ctx[1] = {};
 static u8 stream_buf[STREAMBUF_SIZE + sizeof(struct CslMidiStream)];
 static struct MidiEnv midi_env = {};
 
+static sceCslCtx scemidi_ctx = {};
+static sceCslBuffGrp scemidi_grp[2] = {};
+static sceCslBuffCtx scem_in_buf_ctx[2] = {}, scem_out_buf_ctx[1] = {};
+
+static u8 scestream_buf[STREAMBUF_SIZE + sizeof(sceCslMidiStream)];
+static sceMidiEnv scemidi_env = {};
+
 static sceCslCtx synth_ctx = {};
 static sceCslBuffGrp synth_grp = {};
 static sceCslBuffCtx s_in_buf_ctx[2] = {};
@@ -105,6 +112,25 @@ init()
 #define TM_NO_GATE (0)
 	SetupHardTimer(timer_id, TC_SYSCLOCK, TM_NO_GATE, 1);
 
+	// ---------------
+	//
+	scemidi_ctx.buffGrpNum = 2; // 2 for modmidi
+	scemidi_ctx.buffGrp = scemidi_grp;
+
+	scemidi_grp[0].buffNum = 1 * 2; // 1 input port
+	scemidi_grp[0].buffCtx = scem_in_buf_ctx;
+	scem_in_buf_ctx[0].buff = NULL;			// SEQ data
+	scem_in_buf_ctx[1].buff = &scemidi_env; // midi env
+
+	scemidi_grp[1].buffNum = 1; // 1 output port
+	scemidi_grp[1].buffCtx = scem_out_buf_ctx;
+	scem_out_buf_ctx[0].buff = scestream_buf; // output stream for hsyn
+	((sceCslMidiStream *)scestream_buf)->buffsize = STREAMBUF_SIZE +
+		sizeof(sceCslMidiStream);
+	((sceCslMidiStream *)scestream_buf)->validsize = 0;
+
+	// ---------------
+
 	midi_ctx.buffGrpNum = 2; // 2 for modmidi
 	midi_ctx.buffGrp = midi_grp;
 
@@ -117,7 +143,7 @@ init()
 	midi_grp[1].buffCtx = m_out_buf_ctx;
 	m_out_buf_ctx[0].buff = stream_buf; // output stream for hsyn
 	((struct CslMidiStream *)stream_buf)->buffsize = STREAMBUF_SIZE +
-	    sizeof(struct CslMidiStream);
+		sizeof(struct CslMidiStream);
 	((struct CslMidiStream *)stream_buf)->validsize = 0;
 
 	synth_ctx.buffGrpNum = 1;
@@ -132,6 +158,12 @@ init()
 		printf("hsyn init err %d\n", ret);
 	}
 	ret = Midi_Init(&midi_ctx, usec_per_tick);
+	if (ret != sceMidiNoError) {
+		printf("midi init err %d\n", ret);
+	}
+
+	// -------------
+	ret = sceMidi_Init(&scemidi_ctx, usec_per_tick);
 	if (ret != sceMidiNoError) {
 		printf("midi init err %d\n", ret);
 	}
@@ -198,19 +230,18 @@ _start()
 		printf("hsyn load err %d\n", ret);
 	}
 
-	header = (struct entry_header *)((u8 *)header +
-	    header->entry_byte_count + header->header_byte_count);
+	header = (struct entry_header *)((u8 *)header + header->entry_byte_count +
+		header->header_byte_count);
 	printf("name %s\n", header->name);
 	bd = (u8 *)header + header->header_byte_count;
 
-	ret = sceHSyn_VoiceTrans(1, bd, 0x6000 + total,
-	    header->entry_byte_count);
+	ret = sceHSyn_VoiceTrans(1, bd, 0x6000 + total, header->entry_byte_count);
 	if (ret != sceHSynNoError) {
 		printf("hsyn err %d\n", ret);
 	}
 
-	header = (struct entry_header *)((u8 *)header +
-	    header->entry_byte_count + header->header_byte_count);
+	header = (struct entry_header *)((u8 *)header + header->entry_byte_count +
+		header->header_byte_count);
 	printf("name %s\n", header->name);
 	sq = (s32 *)((u8 *)header + header->header_byte_count);
 
@@ -238,8 +269,44 @@ _start()
 	}
 
 	Midi_MidiSetVolume(&midi_ctx, 0, sceMidi_MidiSetVolume_MasterVol,
-	    sceMidi_Volume0db);
+		sceMidi_Volume0db);
 	sceHSyn_SetVolume(&synth_ctx, 0, sceHSyn_Volume_0db);
+
+	fd = open("host:my_stream_dump", O_CREAT | O_RDWR);
+	write(fd, stream_buf, sizeof(stream_buf));
+	close(fd);
+
+	// -------------------------------------
+
+	scem_in_buf_ctx[0].buff = sq;
+	ret = sceMidi_Load(&scemidi_ctx, 0);
+	if (ret != sceMidiNoError) {
+		printf("midi load err %d\n", ret);
+	}
+
+	for (int ch = 0; ch < sceMidiNumMidiCh; ch++) {
+		scemidi_env.outPort[ch] = 1 << 0;
+	}
+
+	ret = sceMidi_SelectMidi(&scemidi_ctx, 0, 0);
+	if (ret != sceMidiNoError) {
+		printf("midi 1 err %d\n", ret);
+	}
+	ret = sceMidi_MidiSetLocation(&scemidi_ctx, 0, 0);
+	if (ret != sceMidiNoError) {
+		printf("midi err %d\n", ret);
+	}
+	ret = sceMidi_MidiPlaySwitch(&scemidi_ctx, 0, sceMidi_MidiPlayStart);
+	if (ret != sceMidiNoError) {
+		printf("midi err %d\n", ret);
+	}
+
+	sceMidi_MidiSetVolume(&scemidi_ctx, 0, sceMidi_MidiSetVolume_MasterVol,
+		sceMidi_Volume0db);
+
+	fd = open("host:sce_stream_dump", O_CREAT | O_RDWR);
+	write(fd, scestream_buf, sizeof(scestream_buf));
+	close(fd);
 
 	return 0;
 }

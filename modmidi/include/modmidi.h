@@ -4,8 +4,7 @@
 #define Midi_EnvPortIdx(port) (2 * (port) + 1)
 #define Midi_SqPortIdx(port) (2 * (port))
 #define Midi_GetEnv(ctx, port) \
-	(struct MidiEnv        \
-		*)((ctx)->buffGrp[0].buffCtx[Midi_EnvPortIdx(port)].buff)
+	(struct MidiEnv *)((ctx)->buffGrp[0].buffCtx[Midi_EnvPortIdx(port)].buff)
 
 enum {
 	MidiStatus_Loaded = 1,
@@ -66,14 +65,14 @@ struct MidiEnv {
 	unsigned int (*chMsgCallBack)(unsigned int, unsigned int);
 	unsigned int chMsgCallBackPrivateData;
 	int (*metaMsgCallBack)(unsigned char, unsigned char *, unsigned int,
-	    unsigned int);
+		unsigned int);
 	unsigned int metaMsgCallBackPrivateData;
 	int (*excMsgCallBack)(unsigned char *, unsigned int, unsigned int);
 	unsigned int excMsgCallBackPrivateData;
 	int (*repeatCallBack)(struct MidiLoopInfo *, unsigned int);
 	unsigned int repeatCallBackPrivateData;
 	int (*markCallBack)(unsigned int, unsigned int, unsigned char *,
-	    unsigned int);
+		unsigned int);
 	unsigned int markCallBackPrivateData;
 	unsigned char system[MIDI_SYSTEM_MAX_SIZE];
 };
@@ -85,6 +84,6 @@ int Midi_SelectMidi(struct CslCtx *ctx, int port, int midi_block);
 int Midi_MidiSetLocation(struct CslCtx *ctx, int port, unsigned int position);
 int Midi_MidiPlaySwitch(struct CslCtx *ctx, int port, int command);
 int Midi_MidiSetVolume(struct CslCtx *ctx, int port, unsigned int channel,
-    char volume);
+	char volume);
 
 #endif // MODMIDI_H_
