@@ -228,17 +228,17 @@ _start()
 	if (ret != MidiNoError) {
 		printf("midi 1 err %d\n", ret);
 	}
-	// ret = Midi_MidiSetLocation(&midi_ctx, 0, 0);
-	// if (ret != MidiNoError) {
-	//	printf("midi err %d\n", ret);
-	// }
-	// ret = Midi_MidiPlaySwitch(&midi_ctx, 0, sceMidi_MidiPlayStart);
-	// if (ret != MidiNoError) {
-	//	printf("midi err %d\n", ret);
-	// }
+	ret = Midi_MidiSetLocation(&midi_ctx, 0, 0);
+	if (ret != MidiNoError) {
+		printf("midi err %d\n", ret);
+	}
+	ret = Midi_MidiPlaySwitch(&midi_ctx, 0, sceMidi_MidiPlayStart);
+	if (ret != MidiNoError) {
+		printf("midi err %d\n", ret);
+	}
 
-	// Midi_MidiSetVolume(&midi_ctx, 0, sceMidi_MidiSetVolume_MasterVol,
-	//     sceMidi_Volume0db);
+	Midi_MidiSetVolume(&midi_ctx, 0, sceMidi_MidiSetVolume_MasterVol,
+	    sceMidi_Volume0db);
 	sceHSyn_SetVolume(&synth_ctx, 0, sceHSyn_Volume_0db);
 
 	return 0;

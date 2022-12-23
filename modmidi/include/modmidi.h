@@ -82,5 +82,9 @@ int Midi_Load(struct CslCtx *ctx, int port);
 int Midi_Init(struct CslCtx *ctx, int interval);
 int Midi_ATick(struct CslCtx *ctx);
 int Midi_SelectMidi(struct CslCtx *ctx, int port, int midi_block);
+int Midi_MidiSetLocation(struct CslCtx *ctx, int port, unsigned int position);
+int Midi_MidiPlaySwitch(struct CslCtx *ctx, int port, int command);
+int Midi_MidiSetVolume(struct CslCtx *ctx, int port, unsigned int channel,
+    char volume);
 
 #endif // MODMIDI_H_

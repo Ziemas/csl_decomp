@@ -296,18 +296,18 @@ readDelta(struct MidiSystem *system)
 		system->unk = 0;
 	} else {
 		delta = readVLQ(system);
-		system->time += delta;
+		system->tick += delta;
 	}
 }
 
-int
+static int
 systemReset(struct MidiEnv *env)
 {
 	struct MidiSystem *system = Midi_GetSystem(env);
 
 	env->position = 0;
 
-	system->time = 0;
+	system->tick = 0;
 	system->currentTick = 0;
 	system->usecPerPPQN = 0;
 	system->runningStatus = 0;
@@ -337,6 +337,86 @@ systemReset(struct MidiEnv *env)
 	readDelta(system);
 
 	return 1;
+}
+
+static int
+playEnv(struct MidiEnv *env, struct MidiSystem *system,
+    struct CslBuffGrp *output)
+{
+	return 0;
+}
+
+int
+Midi_MidiSetLocation(struct CslCtx *ctx, int port, unsigned int position)
+{
+	struct MidiSystem *system;
+	struct MidiEnv *env;
+
+	if (!selectPort(ctx, port, &env, &system)) {
+		return -1;
+	}
+
+	// Reset to start if we need to go backwards
+	if (position < env->position) {
+		if (!systemReset(env)) {
+			return -1;
+		}
+	}
+
+	while (env->position < position) {
+		if ((env->status & MidiStatus_Unk) != 0) {
+			return -1;
+		}
+
+		if (system->tick >= position) {
+			env->position = position;
+		}
+
+		env->position = system->tick;
+
+		if (!playEnv(env, system, NULL)) {
+			break;
+		}
+	}
+
+	if (env->position != position) {
+		return -1;
+	}
+
+	return 0;
+}
+
+int
+Midi_MidiSetVolume(struct CslCtx *ctx, int port, unsigned int channel,
+    char volume)
+{
+	struct MidiSystem *system;
+	struct MidiEnv *env;
+
+	if (!selectPort(ctx, port, &env, &system)) {
+		return -1;
+	}
+
+	if (channel >= 16) {
+		if (channel != 255) {
+			return -1;
+		}
+
+		system->masterVolume = volume;
+		if ((env->status & MidiStatus_Playing) != 0) {
+			for (int i = 0; i < MidiNumMidiCh; i++) {
+				sendChVolume(env, system,
+				    &ctx->buffGrp[MidiOutBufGroup], i);
+			}
+		}
+
+		return 0;
+	}
+
+	system->chanelVolume[channel] = volume;
+	sendChVolume(env, system, &ctx->buffGrp[MidiOutBufGroup], channel);
+
+	return 0;
 }
 
 int

@@ -43,7 +43,7 @@ struct MidiSystem {
 	struct SeqMidiCompBlock *sqCompBlock;
 	unsigned char *sequenceData;
 	unsigned char *seqPosition;
-	unsigned int time;
+	unsigned int tick;
 	int currentTick;
 	int usecPerPPQN;
 	int Division;
