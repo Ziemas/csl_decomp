@@ -100,8 +100,12 @@ Midi_Load(struct CslCtx *ctx, int port)
 	system->sqHeader = NULL;
 	system->sqMidi = NULL;
 	system->sqSong = NULL;
-	// FIXME unk here
-	// FIXME unk loop
+	system->unk211 = 0;
+
+	// TODO verify (dumb compiler stregth reduction)
+	for (int i = 0; i < MidiNumMidiCh; i++) {
+		system->channelParams[i] = 0x80;
+	}
 
 	system->masterVolume = 0x80;
 	seq = ctx->buffGrp[0].buffCtx[Midi_SqPortIdx(port)].buff;

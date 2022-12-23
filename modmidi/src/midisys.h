@@ -11,6 +11,9 @@ struct MidiSystem {
 	struct SeqMidiChunk *sqMidi;
 	struct SeqSongChunk *sqSong;
 	unsigned char masterVolume;
+
+	unsigned short unk211;
+	unsigned char channelParams[MidiNumMidiCh];
 };
 
 #endif // MIDISYS_H_
