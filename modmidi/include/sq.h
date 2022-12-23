@@ -16,7 +16,7 @@ struct SeqMidiCompBlock {
 	unsigned char compTable[0];
 };
 
-struct sceSeqMidiDataBlock {
+struct SeqMidiDataBlock {
 	unsigned int sequenceDataOffset;
 	unsigned short Division;
 	struct SeqMidiCompBlock compBlock[0];

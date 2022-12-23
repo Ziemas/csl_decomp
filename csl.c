@@ -224,10 +224,10 @@ _start()
 		midi_env.outPort[ch] = 1 << 0;
 	}
 
-	// ret = Midi_SelectMidi(&midi_ctx, 0, 0);
-	// if (ret != MidiNoError) {
-	//	printf("midi err %d\n", ret);
-	// }
+	ret = Midi_SelectMidi(&midi_ctx, 0, 0);
+	if (ret != MidiNoError) {
+		printf("midi 1 err %d\n", ret);
+	}
 	// ret = Midi_MidiSetLocation(&midi_ctx, 0, 0);
 	// if (ret != MidiNoError) {
 	//	printf("midi err %d\n", ret);

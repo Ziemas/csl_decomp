@@ -9,10 +9,18 @@
 
 enum {
 	MidiStatus_Loaded = 1,
+	MidiStatus_Playing = 2,
+	MidiStatus_Unk = 4,
 
 	MidiNoError = 0,
 
 	MidiNumMidiCh = 15,
+
+	MidiPlay_Stop = 0,
+	MidiPlay_Start = 1,
+
+	MidiInBufGroup = 0,
+	MidiOutBufGroup = 1,
 };
 
 struct CslBuffCtx {
@@ -73,5 +81,6 @@ struct MidiEnv {
 int Midi_Load(struct CslCtx *ctx, int port);
 int Midi_Init(struct CslCtx *ctx, int interval);
 int Midi_ATick(struct CslCtx *ctx);
+int Midi_SelectMidi(struct CslCtx *ctx, int port, int midi_block);
 
 #endif // MODMIDI_H_

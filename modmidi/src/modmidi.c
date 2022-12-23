@@ -28,9 +28,110 @@ unsigned short channelMasks[16] = {
 };
 struct MidiLoopInfo loopInfo = { 0 };
 
+static int
+getSystem(struct CslCtx *ctx, int port, struct MidiEnv **envOut,
+    struct MidiSystem **sysOut)
+{
+	if (!ctx) {
+		return 0;
+	}
+
+	if (Midi_EnvPortIdx(port) >= ctx->buffGrp[MidiInBufGroup].buffNum) {
+		return 0;
+	}
+
+	if (!envOut || !sysOut) {
+		return 0;
+	}
+
+	*envOut = Midi_GetEnv(ctx, port);
+	*sysOut = Midi_GetSystem(*envOut);
+
+	return 1;
+}
+
 int
 Midi_ATick(struct CslCtx *ctx)
 {
+	return 0;
+}
+
+int
+Midi_MidiPlaySwitch(struct CslCtx *ctx, int port, int command)
+{
+	return 0;
+}
+
+int
+systemReset(struct MidiEnv *env)
+{
+	return 1;
+}
+
+int
+Midi_SelectMidi(struct CslCtx *ctx, int port, int block)
+{
+	struct SeqMidiDataBlock *midiData;
+	struct SeqMidiChunk *midi;
+	struct MidiSystem *system;
+	struct MidiEnv *env;
+
+	if (!getSystem(ctx, port, &env, &system)) {
+		return -1;
+	}
+
+	if ((env->status & MidiStatus_Playing) != 0) {
+		Midi_MidiPlaySwitch(ctx, port, MidiPlay_Stop);
+	}
+
+	env->status &= ~(MidiStatus_Playing | MidiStatus_Unk);
+	if ((env->status & MidiStatus_Loaded) == 0) {
+		return -1;
+	}
+
+	midi = system->sqMidi;
+	if (!midi) {
+		return -1;
+	}
+
+	if (block > midi->maxMidiNumber) {
+		return -1;
+	}
+
+	if (midi->midiOffsetAddr[block] == -1) {
+		return -1;
+	}
+
+	midiData = (struct SeqMidiDataBlock *)((char *)midi +
+	    midi->midiOffsetAddr[block]);
+
+	if (midiData->sequenceDataOffset == -1) {
+		return -1;
+	}
+
+	system->sqCompBlock = midiData->compBlock;
+	if (midiData->compBlock[0].compOption != 1 ||
+	    !midiData->compBlock[0].compTableSize ||
+	    midiData->sequenceDataOffset < 0xC) {
+		system->sqCompBlock = NULL;
+	}
+
+	for (int i = 0; i < 8; i++) {
+		system->loopStack[i].loopID = -1;
+		system->loopStack[i].loopCount = -1;
+	}
+
+	system->sequenceData = (char *)midiData + midiData->sequenceDataOffset;
+	system->usecPerQuarter = 500000;
+	system->relativeTempo = 256;
+	system->Division = midiData->Division;
+
+	if (!systemReset(env)) {
+		return -1;
+	}
+
+	env->midiNum = block;
+
 	return 0;
 }
 
@@ -102,13 +203,13 @@ Midi_Load(struct CslCtx *ctx, int port)
 	system->sqSong = NULL;
 	system->unk211 = 0;
 
-	// TODO verify (dumb compiler stregth reduction)
+	// TODO verify (dumb compiler strength reduction)
 	for (int i = 0; i < MidiNumMidiCh; i++) {
 		system->channelParams[i] = 0x80;
 	}
 
 	system->masterVolume = 0x80;
-	seq = ctx->buffGrp[0].buffCtx[Midi_SqPortIdx(port)].buff;
+	seq = ctx->buffGrp[MidiInBufGroup].buffCtx[Midi_SqPortIdx(port)].buff;
 
 	if (!seq) {
 		return -1;
@@ -119,15 +220,13 @@ Midi_Load(struct CslCtx *ctx, int port)
 	}
 
 	header = (struct SeqHeaderChunk *)((char *)seq + seq->chunkSize);
-
 	if (!verifySeqChunk(header->Creator, header->Type, "SCEI", "Sequ")) {
 		return -1;
 	}
 
 	song = (struct SeqSongChunk *)((char *)seq + header->seSongChunkAddr);
-
 	if (header->seSongChunkAddr == -1 ||
-	    !verifySeqChunk(header->Creator, header->Type, "SCEI", "Song")) {
+	    !verifySeqChunk(song->Creator, song->Type, "SCEI", "Song")) {
 		song = NULL;
 	}
 
@@ -165,18 +264,18 @@ Midi_Init(struct CslCtx *ctx, int interval)
 	}
 
 	// Even number of input ports required
-	if ((ctx->buffGrp[0].buffNum & 1) != 0) {
+	if ((ctx->buffGrp[MidiInBufGroup].buffNum & 1) != 0) {
 		return -1;
 	}
 
-	if (!ctx->buffGrp[0].buffCtx) {
+	if (!ctx->buffGrp[MidiInBufGroup].buffCtx) {
 		return -1;
 	}
 
-	if (ctx->buffGrp[0].buffNum > 1) {
-		for (int i = 1, port = 0; i < ctx->buffGrp[0].buffNum;
-		     i += 2, port++) {
-			env = ctx->buffGrp[0].buffCtx[i].buff;
+	if (ctx->buffGrp[MidiInBufGroup].buffNum > 1) {
+		for (int i = 1, port = 0;
+		     i < ctx->buffGrp[MidiInBufGroup].buffNum; i += 2, port++) {
+			env = ctx->buffGrp[MidiInBufGroup].buffCtx[i].buff;
 
 			if (env) {
 				for (int j = 0; j < 16; j++) {
@@ -194,9 +293,11 @@ Midi_Init(struct CslCtx *ctx, int interval)
 		}
 	}
 
-	if (ctx->buffGrp[1].buffNum && ctx->buffGrp[1].buffCtx) {
-		stream = ctx->buffGrp[1].buffCtx->buff;
-		for (int i = 0; i < ctx->buffGrp[1].buffNum; i++) {
+	if (ctx->buffGrp[MidiOutBufGroup].buffNum &&
+	    ctx->buffGrp[MidiOutBufGroup].buffCtx) {
+		stream = ctx->buffGrp[MidiOutBufGroup].buffCtx->buff;
+		for (int i = 0; i < ctx->buffGrp[MidiOutBufGroup].buffNum;
+		     i++) {
 			if (stream) {
 				stream->validsize = 0;
 			}
