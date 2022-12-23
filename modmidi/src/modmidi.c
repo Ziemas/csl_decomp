@@ -319,7 +319,7 @@ systemReset(struct MidiEnv *env)
 	system->seqPosition = system->sequenceData;
 
 	for (int i = 0; i < MidiNumMidiCh; i++) {
-		system->unkPerChanVolume[i] = 0;
+		system->unkPerChanVolume[i] = 0x7f;
 		system->chParams[i].program = -1;
 		system->chParams[i].bank = -1;
 		system->chParams[i].pitchModDepth = -1;
@@ -555,9 +555,8 @@ Midi_Load(struct CslCtx *ctx, int port)
 	system->sqSong = NULL;
 	system->unk211 = 0;
 
-	// TODO verify (dumb compiler strength reduction)
 	for (int i = 0; i < MidiNumMidiCh; i++) {
-		system->channelParams[i] = 0x80;
+		system->chanelVolume[i] = 0x80;
 	}
 
 	system->masterVolume = 0x80;
