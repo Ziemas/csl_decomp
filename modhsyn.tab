@@ -1,0 +1,28 @@
+library modhsyn
+version 1.4
+export 4 sceHSyn_Init
+export 5 sceHSyn_ATick
+export 6 sceHSyn_Load
+export 7 sceHSyn_VoiceTrans
+export 8 sceHSyn_SetReservVoice
+export 9 sceHSyn_SetEffectAttr
+export 10 sceHSyn_SetVolume
+export 11 sceHSyn_GetVolume
+export 12 sceHSyn_AllNoteOff
+export 13 sceHSyn_AllSoundOff
+export 14 sceHSyn_ResetAllControler
+export 15 sceHSyn_SetVoiceStatBuffer
+export 16 sceHSyn_SetDebugInfoBuffer
+export 17 sceHSyn_GetChStat
+export 18 sceHSyn_SetOutputMode
+export 19 sceHSyn_SESetMaxVoices
+export 20 sceHSyn_SEAllNoteOff
+export 21 sceHSyn_SEAllSoundOff
+export 22 sceHSyn_SERetrieveVoiceNumberByID
+export 23 sceHSyn_MSGetVoiceStateByID
+export 24 sceHSyn_MSGetVoiceEnvelopeByID
+export 25 sceHSyn_SERetrieveAllSEMsgIDs
+export 26 sceHSyn_GetReservVoice
+export 27 sceHSyn_GetOutputMode
+export 28 sceHSyn_Unload
+export 29 sceHSyn_SetIdMonitor

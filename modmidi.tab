@@ -1,0 +1,24 @@
+library modmidi
+version 1.5
+export 4 sceMidi_Init
+export 5 sceMidi_ATick
+export 6 sceMidi_Load
+export 7 sceMidi_SelectSong
+export 8 sceMidi_SongPlaySwitch
+export 9 sceMidi_SongSetVolume
+export 10 sceMidi_SongVolumeChange
+export 11 sceMidi_SongSetAbsoluteTempo
+export 12 sceMidi_SongSetRelativeTempo
+export 13 sceMidi_SongSetLocation
+export 14 sceMidi_SelectMidi
+export 15 sceMidi_MidiPlaySwitch
+export 16 sceMidi_MidiSetLocation
+export 17 sceMidi_MidiSetVolume
+export 18 sceMidi_MidiVolumeChange
+export 19 sceMidi_MidiSetAbsoluteTempo
+export 20 sceMidi_MidiGetAbsoluteTempo
+export 21 sceMidi_MidiSetRelativeTempo
+export 22 sceMidi_MidiGetRelativeTempo
+export 23 sceMidi_MidiSetUSecTempo
+export 24 sceMidi_MidiGetUSecTempo
+export 25 sceMidi_Unload
