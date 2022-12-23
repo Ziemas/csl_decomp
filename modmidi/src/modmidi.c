@@ -29,7 +29,7 @@ unsigned short channelMasks[16] = {
 struct MidiLoopInfo loopInfo = { 0 };
 
 static int
-getSystem(struct CslCtx *ctx, int port, struct MidiEnv **envOut,
+selectPort(struct CslCtx *ctx, int port, struct MidiEnv **envOut,
     struct MidiSystem **sysOut)
 {
 	if (!ctx) {
@@ -60,6 +60,42 @@ int
 Midi_MidiPlaySwitch(struct CslCtx *ctx, int port, int command)
 {
 	return 0;
+}
+
+static void
+updateTempo(struct MidiSystem *system)
+{
+	system->usecPerPPQN =
+	    (((system->usecPerQuarter << 7) / system->Division) << 8) /
+	    system->relativeTempo;
+}
+
+static int
+readVLQ(struct MidiSystem *system)
+{
+	unsigned char *seqPos = system->seqPosition;
+	s32 tmp, out = 0;
+
+	do {
+		tmp = *seqPos++;
+		out = (out << 7) | (tmp & 0x7f);
+	} while ((tmp & 0x80) != 0);
+
+	system->seqPosition = seqPos;
+
+	return out;
+}
+
+static void
+readDelta(struct MidiSystem *system)
+{
+	s32 delta;
+	if (system->unk) {
+		system->unk = 0;
+	} else {
+		delta = readVLQ(system);
+		system->time += delta;
+	}
 }
 
 int
@@ -95,9 +131,9 @@ systemReset(struct MidiEnv *env)
 		system->chParams[i].pitchBend = -1;
 	}
 
-	// FIXME
-	// updateTempo
-	// readDelta
+	updateTempo(system);
+	readDelta(system);
+
 	return 1;
 }
 
@@ -109,7 +145,7 @@ Midi_SelectMidi(struct CslCtx *ctx, int port, int block)
 	struct MidiSystem *system;
 	struct MidiEnv *env;
 
-	if (!getSystem(ctx, port, &env, &system)) {
+	if (!selectPort(ctx, port, &env, &system)) {
 		return -1;
 	}
 

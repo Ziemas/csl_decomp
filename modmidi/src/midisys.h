@@ -41,8 +41,8 @@ struct MidiSystem {
 	struct SeqMidiChunk *sqMidi;
 	struct SeqSongChunk *sqSong;
 	struct SeqMidiCompBlock *sqCompBlock;
-	char *sequenceData;
-	char *seqPosition;
+	unsigned char *sequenceData;
+	unsigned char *seqPosition;
 	unsigned int time;
 	int currentTick;
 	int usecPerPPQN;
