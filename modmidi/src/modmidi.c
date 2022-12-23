@@ -326,7 +326,8 @@ Midi_SelectMidi(struct CslCtx *ctx, int port, int block)
 		system->loopStack[i].loopCount = -1;
 	}
 
-	system->sequenceData = (char *)midiData + midiData->sequenceDataOffset;
+	system->sequenceData = (unsigned char *)midiData +
+	    midiData->sequenceDataOffset;
 	system->usecPerQuarter = 500000;
 	system->relativeTempo = 256;
 	system->Division = midiData->Division;
