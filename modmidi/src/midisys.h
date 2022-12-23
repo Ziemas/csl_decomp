@@ -54,6 +54,8 @@ struct MidiSystem {
 	unsigned char masterVolume;
 	struct markEntry markEntry;
 
+	unsigned short activeChan;
+
 	unsigned char unkPerChanVolume[MidiNumMidiCh];
 	unsigned char chanelVolume[MidiNumMidiCh];
 	struct channelParams chParams[MidiNumMidiCh];

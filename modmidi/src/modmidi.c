@@ -56,9 +56,145 @@ Midi_ATick(struct CslCtx *ctx)
 	return 0;
 }
 
+static void
+sendChMsg(struct MidiEnv *env, struct MidiSystem *system,
+    struct CslBuffGrp *outGroup, unsigned int msg, unsigned int msgLen)
+{
+}
+
+static void
+allNoteOff(struct MidiEnv *env, struct CslBuffGrp *out_group)
+{
+	struct MidiSystem *system = Midi_GetSystem(env);
+	for (int i = 0; i < MidiNumMidiCh; i++) {
+		if ((system->activeChan & channelMasks[i]) != 0) {
+			// FIXME macro for constructing these?
+			sendChMsg(env, system, out_group, i | 0x40B0, 3);
+			sendChMsg(env, system, out_group, i | 0x7BB0, 3);
+		}
+	}
+	system->activeChan = 0;
+}
+
+static unsigned int
+getChanVol(struct MidiSystem *system, int ch)
+{
+	// clang-format off
+	s32 ret = (system->unkPerChanVolume[ch] * system->chanelVolume[ch] *
+		      system->masterVolume) >> 14;
+	// clang-format on
+
+	if (ret >= 0x80) {
+		ret = 0x7f;
+	}
+	return ret;
+}
+
+static void
+sendChVolume(struct MidiEnv *env, struct MidiSystem *system,
+    struct CslBuffGrp *outGroup, int ch)
+{
+
+	unsigned int chanVol = getChanVol(system, ch);
+	sendChMsg(env, system, outGroup, ch | (chanVol << 16) | 0x7B0, 3);
+}
+
+static void
+channelSetup(struct MidiEnv *env, struct CslBuffGrp *outGroup)
+{
+	struct MidiSystem *system = Midi_GetSystem(env);
+	struct channelParams *ch;
+	for (int i = 0; i < MidiNumMidiCh; i++) {
+		ch = &system->chParams[i];
+
+		if ((ch->bank & 0x80) == 0) {
+			sendChMsg(env, system, outGroup,
+			    i | (ch->bank << 16) | 0xB0, 3);
+		}
+		if ((ch->program & 0x80) == 0) {
+			sendChMsg(env, system, outGroup,
+			    i | (ch->program << 8) | 0xC0, 2);
+		}
+		if ((ch->pitchModDepth & 0x80) == 0) {
+			sendChMsg(env, system, outGroup,
+			    i | (ch->pitchModDepth << 16) | 0x1B0, 3);
+		}
+		if ((ch->ampModDepth & 0x80) == 0) {
+			sendChMsg(env, system, outGroup,
+			    i | (ch->ampModDepth << 16) | 0x2B0, 3);
+		}
+		if ((ch->portamentTime & 0x80) == 0) {
+			sendChMsg(env, system, outGroup,
+			    i | (ch->portamentTime << 16) | 0x3B0, 3);
+		}
+		if ((ch->volume & 0x80) == 0) {
+			system->unkPerChanVolume[i] = ch->volume;
+			sendChVolume(env, system, outGroup, i);
+		}
+		if ((ch->pan & 0x80) == 0) {
+			sendChMsg(env, system, outGroup,
+			    i | (ch->pan << 16) | 0xAB0, 3);
+		}
+		if ((ch->expression & 0x80) == 0) {
+			sendChMsg(env, system, outGroup,
+			    i | (ch->expression << 16) | 0xBB0, 3);
+		}
+		if ((ch->damper & 0x80) == 0) {
+			sendChMsg(env, system, outGroup,
+			    i | (ch->damper << 16) | 0x40B0, 3);
+		}
+		if ((ch->portamentSwitch & 0x80) == 0) {
+			sendChMsg(env, system, outGroup,
+			    i | (ch->portamentSwitch << 16) | 0x41B0, 3);
+		}
+		if ((ch->pitchBend & 0x8080) == 0) {
+			sendChMsg(env, system, outGroup,
+			    i | (ch->pitchBend << 8) | 0xE0, 3);
+		}
+	}
+}
+
 int
 Midi_MidiPlaySwitch(struct CslCtx *ctx, int port, int command)
 {
+	struct MidiEnv *env;
+	if (!ctx) {
+		return -1;
+	}
+
+	if (Midi_EnvPortIdx(port) >= ctx->buffGrp[MidiInBufGroup].buffNum) {
+		// out of bounds port
+		return -1;
+	}
+
+	env = Midi_GetEnv(ctx, port);
+	if (!env) {
+		return -1;
+	}
+
+	if (command == MidiPlay_Stop) {
+		if ((env->status & MidiStatus_Playing) == 0) {
+			return 0;
+		}
+
+		allNoteOff(env, &ctx->buffGrp[MidiOutBufGroup]);
+		env->status &= ~MidiStatus_Playing;
+	}
+
+	if (command == MidiPlay_Start) {
+		if ((env->status & (MidiStatus_Unk | MidiStatus_Loaded)) !=
+		    MidiStatus_Loaded) {
+			return -1;
+		}
+
+		if (env->midiNum == -1) {
+			return -1;
+		}
+
+		channelSetup(env, &ctx->buffGrp[MidiOutBufGroup]);
+		env->status |= MidiStatus_Playing;
+	}
+
 	return 0;
 }
 
