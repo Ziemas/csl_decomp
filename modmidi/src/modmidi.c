@@ -65,6 +65,39 @@ Midi_MidiPlaySwitch(struct CslCtx *ctx, int port, int command)
 int
 systemReset(struct MidiEnv *env)
 {
+	struct MidiSystem *system = Midi_GetSystem(env);
+
+	env->position = 0;
+
+	system->time = 0;
+	system->currentTick = 0;
+	system->usecPerPPQN = 0;
+	system->runningStatus = 0;
+	system->unk = 0;
+	system->markEntry.data = 0;
+	system->markEntry.type = 0;
+	system->markEntry.count = 0;
+	system->markEntry.dataMode = 0;
+	system->seqPosition = system->sequenceData;
+
+	for (int i = 0; i < MidiNumMidiCh; i++) {
+		system->unkPerChanVolume[i] = 0;
+		system->chParams[i].program = -1;
+		system->chParams[i].bank = -1;
+		system->chParams[i].pitchModDepth = -1;
+		system->chParams[i].ampModDepth = -1;
+		system->chParams[i].portamentTime = -1;
+		system->chParams[i].volume = -1;
+		system->chParams[i].pan = -1;
+		system->chParams[i].expression = -1;
+		system->chParams[i].damper = -1;
+		system->chParams[i].portamentSwitch = -1;
+		system->chParams[i].pitchBend = -1;
+	}
+
+	// FIXME
+	// updateTempo
+	// readDelta
 	return 1;
 }
 

@@ -14,7 +14,7 @@ enum {
 
 	MidiNoError = 0,
 
-	MidiNumMidiCh = 15,
+	MidiNumMidiCh = 16,
 
 	MidiPlay_Stop = 0,
 	MidiPlay_Start = 1,
