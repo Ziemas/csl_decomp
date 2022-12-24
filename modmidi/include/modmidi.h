@@ -9,7 +9,7 @@
 enum {
 	MidiStatus_Loaded = 1,
 	MidiStatus_Playing = 2,
-	MidiStatus_Unk = 4,
+	MidiStatus_Ended = 4,
 
 	MidiNoError = 0,
 

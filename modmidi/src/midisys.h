@@ -44,9 +44,9 @@ struct MidiSystem {
 	unsigned char *sequenceData;
 	unsigned char *seqPosition;
 	unsigned int tick;
-	int currentTick;
-	int usecPerPPQN;
-	int Division;
+	unsigned int currentTick;
+	unsigned int usecPerPPQN;
+	unsigned int Division;
 	unsigned int usecPerQuarter;
 	unsigned int relativeTempo;
 	unsigned char runningStatus;

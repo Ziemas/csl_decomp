@@ -50,12 +50,6 @@ selectPort(struct CslCtx *ctx, int port, struct MidiEnv **envOut,
 	return 1;
 }
 
-int
-Midi_ATick(struct CslCtx *ctx)
-{
-	return 0;
-}
-
 static struct CslBuffCtx *
 getOutPortCtx(unsigned int port, struct CslBuffGrp *bufGrp)
 {
@@ -75,13 +69,6 @@ sendChMsg(struct MidiEnv *env, struct MidiSystem *system,
 	unsigned int chan, portBits;
 	unsigned char *out;
 	msg &= 0x7F7FFF;
-
-	if (env->chMsgCallBack) {
-		msg = env->chMsgCallBack(msg, env->chMsgCallBackPrivateData);
-		if (msg == 0) {
-			return;
-		}
-	}
 
 	chan = msg & 0xf;
 	system->activeChan |= channelMasks[chan];
@@ -244,7 +231,7 @@ Midi_MidiPlaySwitch(struct CslCtx *ctx, int port, int command)
 	}
 
 	if (command == MidiPlay_Start) {
-		if ((env->status & (MidiStatus_Unk | MidiStatus_Loaded)) !=
+		if ((env->status & (MidiStatus_Ended | MidiStatus_Loaded)) !=
 			MidiStatus_Loaded) {
 			return -1;
 		}
@@ -335,18 +322,138 @@ systemReset(struct MidiEnv *env)
 	return 1;
 }
 
+static void
+parseExcEvent(struct MidiEnv *env, struct MidiSystem *system,
+	struct CslBuffGrp *output)
+{
+	struct CslBuffCtx *bufCtx;
+	struct CslMidiStream *stream;
+	unsigned int len = readVLQ(system);
+	unsigned int portBits;
+	unsigned char *out, *in;
+
+	if (env->excMsgCallBack) {
+		s32 ret = env->excMsgCallBack(system->seqPosition, len,
+			env->excMsgCallBackPrivateData);
+		if (!ret) {
+			system->sequenceData += len;
+			return;
+		}
+	}
+
+	if (!output) {
+		system->sequenceData += len;
+		return;
+	}
+
+	portBits = env->excOutPort;
+	if (!portBits) {
+		system->sequenceData += len;
+		return;
+	}
+
+	for (int port = 0; portBits != 0; port++, portBits >>= 1) {
+		if ((portBits & 1) == 0) {
+			continue;
+		}
+
+		bufCtx = getOutPortCtx(port, output);
+		if (!bufCtx) {
+			continue;
+		}
+
+		stream = (struct CslMidiStream *)bufCtx->buff;
+		if (!stream) {
+			continue;
+		}
+
+		if (stream->buffsize < stream->validsize + len + 9) {
+			if (gVerbose) {
+				printf("paesExcEvent Buffer OverRun\n");
+			}
+
+			continue;
+		}
+
+		out = &stream->data[stream->validsize];
+		stream->validsize += len + 1;
+		in = system->sequenceData;
+
+		*out++ = 0xf0;
+
+		for (int j = 0; j < len; j++) {
+			*out++ = *in++ & 0xff;
+		}
+	}
+
+	return;
+}
+
+static int
+parseMetaEvent(struct MidiEnv *env, struct MidiSystem *system,
+	unsigned char event)
+{
+	unsigned int len = readVLQ(system);
+	unsigned int tempo;
+
+	if (env->metaMsgCallBack) {
+		s32 ret = env->metaMsgCallBack(event, system->seqPosition, len,
+			env->metaMsgCallBackPrivateData);
+		if (!ret) {
+			system->sequenceData += len;
+			return event != 0x2f;
+		}
+	}
+
+	if (event == 0x2f) {
+		env->status |= MidiStatus_Ended;
+		return 0;
+	}
+
+	if (event == 0x51) {
+		if (len != 3) {
+			if (gVerbose) {
+				printf("parseMetaEvent tempo length error %d\n", len);
+			}
+			return 0;
+		}
+
+		tempo = (system->seqPosition[0] << 16) + (system->seqPosition[1] << 8) +
+			(system->seqPosition[2]);
+		system->usecPerQuarter = tempo;
+
+		if (gDebug) {
+			printf("TEMPO = %d\n", 60000000 / tempo);
+		}
+
+		system->seqPosition += 3;
+		updateTempo(system);
+		return 1;
+	}
+
+	system->seqPosition += len;
+	return 1;
+}
+
+static void
+parseMark(struct MidiEnv *env, struct MidiSystem *system, unsigned char command,
+	unsigned char param, struct CslBuffGrp *outbuf)
+{
+}
+
 static int
 playEnv(struct MidiEnv *env, struct MidiSystem *system,
 	struct CslBuffGrp *output)
 {
-	unsigned int status;
+	unsigned int status, cmd, ch, outmsg, outsize;
 	if (env->position < system->tick) {
 		return 1;
 	}
-	while (1) {
-		status = *system->seqPosition++;
-		if ((status & 0x80) != 0) {
 
+	while (1) {
+		if ((*system->seqPosition & 0x80) != 0) {
+			status = *system->seqPosition;
+			system->seqPosition++;
 		} else {
 			if (!system->runningStatus) {
 				if (gVerbose) {
@@ -355,9 +462,115 @@ playEnv(struct MidiEnv *env, struct MidiSystem *system,
 				}
 				return 0;
 			}
+
+			status = system->runningStatus;
+		}
+		cmd = status & 0xf0;
+		ch = status & 0xf;
+		outmsg = status | *system->seqPosition << 8;
+		if (cmd == 0xf0) {
+		}
+		if (cmd == 0xb0) {
+			unsigned char subcmd = *system->seqPosition++;
+			unsigned char param = *system->seqPosition++;
+			outmsg |= param << 16;
+			switch (subcmd) {
+			case 0x0:
+				system->chParams[ch].bank = param & 0x7f;
+				break;
+			case 0x1:
+				system->chParams[ch].pitchModDepth = param & 0x7f;
+				break;
+			case 0x2:
+				system->chParams[ch].ampModDepth = param & 0x7f;
+				break;
+			case 0x5:
+				system->chParams[ch].portamentTime = param & 0x7f;
+				break;
+			case 0x6:
+			case 0x26:
+			case 0x62:
+			case 0x63:
+				break;
+			case 0x7:
+				system->unkPerChanVolume[ch] = param & 0x7f;
+				system->chParams[ch].volume = param & 0x7f;
+				break;
+			case 0xa:
+				system->chParams[ch].pan = param & 0x7f;
+				break;
+			case 0xb:
+				system->chParams[ch].expression = param & 0x7f;
+				break;
+			case 0x20:
+				env->outPort[ch] = 1 << (param & 0x7f);
+				break;
+			case 0x40:
+				system->chParams[ch].damper = param & 0x7f;
+				break;
+			case 0x41:
+				system->chParams[ch].portamentSwitch = param & 0x7f;
+				break;
+			default:
+				break;
+			}
+		}
+		if (cmd == 0x90) {
+		}
+		if (cmd == 0x80) {
+		}
+
+		readDelta(system);
+		if (env->position < system->tick) {
+			return 1;
 		}
 	}
 
+	return 0;
+}
+
+static void
+tickMidi(struct MidiEnv *env, struct CslBuffGrp *output)
+{
+	struct MidiSystem *system = Midi_GetSystem(env);
+	unsigned int tickTarget = system->currentTick + gTickInterval;
+
+	while (1) {
+		if (!playEnv(env, system, output)) {
+			tickTarget = 0;
+			env->status &= ~MidiStatus_Playing;
+			allNoteOff(env, output);
+			break;
+		}
+
+		if (tickTarget < system->usecPerPPQN) {
+			break;
+		}
+
+		tickTarget -= system->usecPerPPQN;
+		env->position++;
+	}
+
+	system->currentTick = tickTarget;
+}
+
+int
+Midi_ATick(struct CslCtx *ctx)
+{
+	struct CslBuffGrp *input = &ctx->buffGrp[MidiInBufGroup];
+	struct MidiEnv *env;
+
+	for (int i = 1; i < input->buffNum; i += 2) {
+		env = input->buffCtx[i].buff;
+
+		if (env) {
+			if (env->status & MidiStatus_Playing) {
+				tickMidi(env, &ctx->buffGrp[MidiOutBufGroup]);
+			}
+
+			// tickSong not implemented
+		}
+	}
 	return 0;
 }
 
@@ -379,7 +592,7 @@ Midi_MidiSetLocation(struct CslCtx *ctx, int port, unsigned int position)
 	}
 
 	while (env->position < position) {
-		if ((env->status & MidiStatus_Unk) != 0) {
+		if ((env->status & MidiStatus_Ended) != 0) {
 			return -1;
 		}
 
@@ -449,7 +662,7 @@ Midi_SelectMidi(struct CslCtx *ctx, int port, int block)
 		Midi_MidiPlaySwitch(ctx, port, MidiPlay_Stop);
 	}
 
-	env->status &= ~(MidiStatus_Playing | MidiStatus_Unk);
+	env->status &= ~(MidiStatus_Playing | MidiStatus_Ended);
 	if ((env->status & MidiStatus_Loaded) == 0) {
 		return -1;
 	}
