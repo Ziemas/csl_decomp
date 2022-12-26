@@ -28,7 +28,7 @@ struct channelParams {
 	unsigned char pitchModDepth;
 	unsigned char ampModDepth;
 	unsigned char portamentTime;
-	char volume;
+	unsigned char volume;
 	unsigned char pan;
 	unsigned char expression;
 	unsigned char damper;
@@ -44,13 +44,13 @@ struct MidiSystem {
 	unsigned char *sequenceData;
 	unsigned char *seqPosition;
 	unsigned int tick;
-	unsigned int currentTick;
+	int tickRemainder;
 	unsigned int usecPerPPQN;
 	unsigned int Division;
 	unsigned int usecPerQuarter;
 	unsigned int relativeTempo;
 	unsigned char runningStatus;
-	char unk;
+	unsigned char skipDelta;
 	unsigned char masterVolume;
 	struct markEntry markEntry;
 

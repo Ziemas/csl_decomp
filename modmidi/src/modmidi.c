@@ -68,6 +68,8 @@ sendChMsg(struct MidiEnv *env, struct MidiSystem *system,
 	struct CslMidiStream *stream;
 	unsigned int chan, portBits;
 	unsigned char *out;
+
+	// clear MSBs for midi compliance
 	msg &= 0x7F7FFF;
 
 	chan = msg & 0xf;
@@ -130,7 +132,7 @@ allNoteOff(struct MidiEnv *env, struct CslBuffGrp *out_group)
 }
 
 static unsigned int
-getChanVol(struct MidiSystem *system, int ch)
+getChanVol(struct MidiSystem *system, unsigned char ch)
 {
 	// clang-format off
 	s32 ret = (system->unkPerChanVolume[ch] * system->chanelVolume[ch] *
@@ -275,8 +277,8 @@ static void
 readDelta(struct MidiSystem *system)
 {
 	s32 delta;
-	if (system->unk) {
-		system->unk = 0;
+	if (system->skipDelta & 0xFF) {
+		system->skipDelta = 0;
 	} else {
 		delta = readVLQ(system);
 		system->tick += delta;
@@ -291,10 +293,10 @@ systemReset(struct MidiEnv *env)
 	env->position = 0;
 
 	system->tick = 0;
-	system->currentTick = 0;
+	system->tickRemainder = 0;
 	system->usecPerPPQN = 0;
 	system->runningStatus = 0;
-	system->unk = 0;
+	system->skipDelta = 0;
 	system->markEntry.data = 0;
 	system->markEntry.type = 0;
 	system->markEntry.count = 0;
@@ -332,6 +334,7 @@ parseExcEvent(struct MidiEnv *env, struct MidiSystem *system,
 	unsigned int portBits;
 	unsigned char *out, *in;
 
+	printf("excEvent\n");
 	if (env->excMsgCallBack) {
 		s32 ret = env->excMsgCallBack(system->seqPosition, len,
 			env->excMsgCallBackPrivateData);
@@ -435,90 +438,225 @@ parseMetaEvent(struct MidiEnv *env, struct MidiSystem *system,
 	return 1;
 }
 
+struct loopStackEntry *
+searchLoop(struct loopStackEntry *ent, unsigned char loop_id)
+{
+	for (int i = 7; i >= 0; i--) {
+		if (ent[i].loopID == loop_id) {
+			return &ent[i];
+		}
+	}
+
+	return NULL;
+}
+
 static void
 parseMark(struct MidiEnv *env, struct MidiSystem *system, unsigned char command,
 	unsigned char param, struct CslBuffGrp *outbuf)
 {
+	switch (command) {
+	case 0x6:
+		system->markEntry.data = param;
+		break;
+	case 0x26:
+		system->markEntry.count = param;
+		break;
+	case 0x62:
+		system->markEntry.dataMode = param;
+		system->markEntry.count = -1;
+		system->markEntry.data = -1;
+		break;
+	case 0x63:
+		system->markEntry.type = param;
+		system->markEntry.count = -1;
+		system->markEntry.data = -1;
+		break;
+	default:
+		return;
+	}
+
+	if (system->markEntry.type == 0 && system->markEntry.count != 0xff &&
+		system->markEntry.data != 0xff) {
+	}
+	if (system->markEntry.type == 1) {
+	}
+	if (system->markEntry.type == 0x10) {
+	}
+	if (system->markEntry.type == 0x11) {
+	}
+	if (system->markEntry.type == 0x12) {
+	}
+}
+
+void
+seqJump(struct MidiSystem *system)
+{
+	system->seqPosition--;
+	system->seqPosition += readVLQ(system);
 }
 
 static int
 playEnv(struct MidiEnv *env, struct MidiSystem *system,
 	struct CslBuffGrp *output)
 {
-	unsigned int status, cmd, ch, outmsg, outsize;
+	unsigned int cmd, ch, outmsg, outsize;
+	unsigned char status, param, value;
 	if (env->position < system->tick) {
 		return 1;
 	}
 
 	while (1) {
 		if ((*system->seqPosition & 0x80) != 0) {
-			status = *system->seqPosition;
-			system->seqPosition++;
+			status = *system->seqPosition++;
+			param = *system->seqPosition++;
 		} else {
 			if (!system->runningStatus) {
 				if (gVerbose) {
 					printf("playEnv running status error %02x %02x\n", status,
 						system->runningStatus);
 				}
+
 				return 0;
 			}
-
 			status = system->runningStatus;
+			param = *system->seqPosition++;
 		}
+		outmsg = status | param << 8;
+		outsize = 3;
+		system->runningStatus = status;
 		cmd = status & 0xf0;
 		ch = status & 0xf;
-		outmsg = status | *system->seqPosition << 8;
-		if (cmd == 0xf0) {
-		}
-		if (cmd == 0xb0) {
-			unsigned char subcmd = *system->seqPosition++;
-			unsigned char param = *system->seqPosition++;
-			outmsg |= param << 16;
-			switch (subcmd) {
-			case 0x0:
-				system->chParams[ch].bank = param & 0x7f;
-				break;
-			case 0x1:
-				system->chParams[ch].pitchModDepth = param & 0x7f;
-				break;
-			case 0x2:
-				system->chParams[ch].ampModDepth = param & 0x7f;
-				break;
-			case 0x5:
-				system->chParams[ch].portamentTime = param & 0x7f;
-				break;
-			case 0x6:
-			case 0x26:
-			case 0x62:
-			case 0x63:
-				break;
-			case 0x7:
-				system->unkPerChanVolume[ch] = param & 0x7f;
-				system->chParams[ch].volume = param & 0x7f;
-				break;
-			case 0xa:
-				system->chParams[ch].pan = param & 0x7f;
-				break;
-			case 0xb:
-				system->chParams[ch].expression = param & 0x7f;
-				break;
-			case 0x20:
-				env->outPort[ch] = 1 << (param & 0x7f);
-				break;
-			case 0x40:
-				system->chParams[ch].damper = param & 0x7f;
-				break;
-			case 0x41:
-				system->chParams[ch].portamentSwitch = param & 0x7f;
-				break;
+		switch (cmd) {
+		case 0x80: {
+			outsize = 2;
+			value = 0;
+		} break;
+		case 0x90: {
+			value = *system->seqPosition++;
+			outsize = 3;
+			outmsg |= value << 16;
+		} break;
+		case 0xA0: {
+			struct SeqMidiCompBlock *compBlock = system->sqCompBlock;
+			unsigned int compEnt;
+			outsize = 3;
+			if (compBlock) {
+				compEnt = 2 * ((status & 0xF) | (param & 0xF0));
+				if (compEnt < compBlock->compTableSize) {
+					outmsg = compBlock->compTable[compEnt] |
+						(compBlock->compTable[compEnt + 1] << 8) |
+						(((8 * (param & 0xF)) | 7) << 16);
+				} else {
+					outsize = 0;
+				}
+				value = 0;
+			} else {
+				value = *system->seqPosition++;
+				outmsg |= value << 16;
+			}
+		} break;
+		case 0xB0: {
+			value = *system->seqPosition++;
+			outmsg |= value << 16;
+			outsize = 3;
+			switch (param) {
+			case 0x0: {
+				system->chParams[ch].bank = value & 0x7f;
+			} break;
+			case 0x1: {
+				system->chParams[ch].pitchModDepth = value & 0x7f;
+			} break;
+			case 0x2: {
+				system->chParams[ch].ampModDepth = value & 0x7f;
+			} break;
+			case 0x5: {
+				system->chParams[ch].portamentTime = value & 0x7f;
+			} break;
+			// case 0x6:
+			// case 0x26:
+			// case 0x62:
+			// case 0x63: {
+			//	// parseMark(env, system, subcmd, param, output);
+			// } break;
+			case 0x7: {
+				system->unkPerChanVolume[ch] = value & 0x7f;
+				system->chParams[ch].volume = value & 0x7f;
+				value = (value & 0x80) | getChanVol(system, ch);
+				outmsg = (outmsg & 0xFFFF) | (value << 16);
+			} break;
+			case 0xa: {
+				system->chParams[ch].pan = value & 0x7f;
+			} break;
+			case 0xb: {
+				system->chParams[ch].expression = value & 0x7f;
+			} break;
+			case 0x20: {
+				env->outPort[ch] = 1 << (value & 0x7f);
+			} break;
+			case 0x40: {
+				system->chParams[ch].damper = value & 0x7f;
+			} break;
+			case 0x41: {
+				system->chParams[ch].portamentSwitch = value & 0x7f;
+			} break;
 			default:
 				break;
 			}
+		} break;
+		case 0xC0: {
+			outsize = 2;
+			value = 0;
+			system->chParams[ch].program = param & 0x7f;
+		} break;
+		case 0xD0: {
+			outsize = 2;
+			value = 0;
+		} break;
+		case 0xE0: {
+			value = *system->seqPosition++;
+			outsize = 3;
+			outmsg |= value << 16;
+			system->chParams[ch].pitchBend = outmsg >> 8;
+		} break;
+		case 0xF0: {
+			outsize = 0;
+			value = 0;
+			system->skipDelta = 0;
+
+			switch (status) {
+			case 0xF0: {
+				parseExcEvent(env, system, output);
+			} break;
+			case 0xF7: {
+				seqJump(system);
+			} break;
+			case 0xFF: {
+				if (!parseMetaEvent(env, system, param)) {
+					return 0;
+				}
+			} break;
+			default:
+				break;
+			}
+
+			readDelta(system);
+			if (env->position < system->tick) {
+				return 1;
+			}
+
+			continue;
+		} break;
+		default: {
+			printf("playEnv unknown status %02x\n", status);
+			return 0;
+		} break;
 		}
-		if (cmd == 0x90) {
+
+		if (outsize > 0) {
+			sendChMsg(env, system, output, outmsg, outsize);
 		}
-		if (cmd == 0x80) {
-		}
+
+		system->skipDelta = (param | value) & 0x80;
 
 		readDelta(system);
 		if (env->position < system->tick) {
@@ -533,7 +671,7 @@ static void
 tickMidi(struct MidiEnv *env, struct CslBuffGrp *output)
 {
 	struct MidiSystem *system = Midi_GetSystem(env);
-	unsigned int tickTarget = system->currentTick + gTickInterval;
+	int tickTarget = system->tickRemainder + gTickInterval;
 
 	while (1) {
 		if (!playEnv(env, system, output)) {
@@ -551,7 +689,7 @@ tickMidi(struct MidiEnv *env, struct CslBuffGrp *output)
 		env->position++;
 	}
 
-	system->currentTick = tickTarget;
+	system->tickRemainder = tickTarget;
 }
 
 int
