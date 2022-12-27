@@ -26,7 +26,7 @@ unsigned short channelMasks[16] = {
 	1 << 14,
 	1 << 15,
 };
-struct MidiLoopInfo loopInfo = { 0 };
+struct MidiLoopInfo gLoopInfo = { 0 };
 
 static int
 selectPort(struct CslCtx *ctx, int port, struct MidiEnv **envOut,
@@ -297,10 +297,10 @@ systemReset(struct MidiEnv *env)
 	system->usecPerPPQN = 0;
 	system->runningStatus = 0;
 	system->skipDelta = 0;
-	system->markEntry.data = 0;
-	system->markEntry.type = 0;
-	system->markEntry.count = 0;
-	system->markEntry.dataMode = 0;
+	system->mark.data = 0;
+	system->mark.type = 0;
+	system->mark.count = 0;
+	system->mark.dataMode = 0;
 	system->seqPosition = system->sequenceData;
 
 	for (int i = 0; i < MidiNumMidiCh; i++) {
@@ -438,10 +438,10 @@ parseMetaEvent(struct MidiEnv *env, struct MidiSystem *system,
 	return 1;
 }
 
-struct loopStackEntry *
-searchLoop(struct loopStackEntry *ent, unsigned char loop_id)
+static struct loopTableEntry *
+searchLoop(struct loopTableEntry *ent, unsigned char loop_id)
 {
-	for (int i = 7; i >= 0; i--) {
+	for (int i = 0; i < 8; i++) {
 		if (ent[i].loopID == loop_id) {
 			return &ent[i];
 		}
@@ -451,44 +451,119 @@ searchLoop(struct loopStackEntry *ent, unsigned char loop_id)
 }
 
 static void
+markReset(struct MidiSystem *system)
+{
+	system->mark.count = -1;
+	system->mark.data = -1;
+	system->mark.dataMode = -1;
+	system->mark.type = -1;
+}
+
+static void
 parseMark(struct MidiEnv *env, struct MidiSystem *system, unsigned char command,
 	unsigned char param, struct CslBuffGrp *outbuf)
 {
 	switch (command) {
 	case 0x6:
-		system->markEntry.data = param;
+		system->mark.data = param;
 		break;
 	case 0x26:
-		system->markEntry.count = param;
+		system->mark.count = param;
 		break;
 	case 0x62:
-		system->markEntry.dataMode = param;
-		system->markEntry.count = -1;
-		system->markEntry.data = -1;
+		system->mark.dataMode = param;
+		system->mark.count = -1;
+		system->mark.data = -1;
 		break;
 	case 0x63:
-		system->markEntry.type = param;
-		system->markEntry.count = -1;
-		system->markEntry.data = -1;
+		system->mark.type = param;
+		system->mark.count = -1;
+		system->mark.data = -1;
 		break;
 	default:
 		return;
 	}
 
-	if (system->markEntry.type == 0 && system->markEntry.count != 0xff &&
-		system->markEntry.data != 0xff) {
-	}
-	if (system->markEntry.type == 1) {
-	}
-	if (system->markEntry.type == 0x10) {
-	}
-	if (system->markEntry.type == 0x11) {
-	}
-	if (system->markEntry.type == 0x12) {
+	switch (system->mark.type) {
+	case MarkType_LoopStart: {
+		struct loopTableEntry *loop;
+		if (system->mark.data == 0xFF) {
+			break;
+		}
+		loop = searchLoop(system->loopTable, system->mark.data);
+		if (loop) {
+			if (loop->loopCount != -1 && gVerbose) {
+				printf("loop start duplext %d\n", system->mark.data);
+			}
+		} else {
+			loop = searchLoop(system->loopTable, LoopFree);
+		}
+
+		if (loop) {
+			loop->loopCount = -1;
+			loop->loopID = system->mark.data;
+			loop->runningStatus = system->runningStatus;
+			loop->skipDelta = system->skipDelta;
+			loop->tick = system->tick;
+			loop->seqPos = system->seqPosition;
+		} else if (gVerbose) {
+			printf("Loop table overflow");
+		}
+
+		markReset(system);
+	} break;
+	case MarkType_LoopEnd: {
+		struct loopTableEntry *loop;
+		if (system->mark.data == 0xFF || system->mark.count == 0xFF) {
+			break;
+		}
+		loop = searchLoop(system->loopTable, system->mark.data);
+		if (loop) {
+			if (loop->loopCount == 0xFF) {
+				loop->loopCount = system->mark.count;
+			}
+
+			if (system->mark.count && loop->loopCount == 0) {
+				loop->loopCount = -1;
+				break;
+			}
+
+			if (env->repeatCallBack) {
+				gLoopInfo.loopTimes = system->mark.count;
+				gLoopInfo.loopCount = system->mark.count - loop->loopCount + 1;
+				gLoopInfo.loopId = loop->loopID;
+				if (!env->repeatCallBack(&gLoopInfo,
+						env->repeatCallBackPrivateData)) {
+					loop->loopCount = -1;
+					break;
+				}
+			}
+
+			system->seqPosition = loop->seqPos;
+			system->tick = loop->tick;
+			env->position = loop->tick;
+			system->skipDelta = loop->skipDelta;
+			system->runningStatus = loop->runningStatus;
+			if (system->mark.count) {
+				loop->loopCount--;
+			}
+
+		} else if (gVerbose) {
+			printf("not found loop start %d\n", system->mark.data);
+			markReset(system);
+			break;
+		}
+	} break;
+	case 0x10: {
+	} break;
+	case 0x12: {
+	} break;
+	case 0x7f: {
+	} break;
 	}
 }
 
-void
+static void
 seqJump(struct MidiSystem *system)
 {
 	system->seqPosition--;
@@ -499,8 +574,8 @@ static int
 playEnv(struct MidiEnv *env, struct MidiSystem *system,
 	struct CslBuffGrp *output)
 {
-	unsigned int cmd, ch, outmsg, outsize;
-	unsigned char status, param, value;
+	unsigned int cmd, outmsg, outsize;
+	unsigned char status, ch, arg1, arg2;
 	if (env->position < system->tick) {
 		return 1;
 	}
@@ -508,20 +583,20 @@ playEnv(struct MidiEnv *env, struct MidiSystem *system,
 	while (1) {
 		if ((*system->seqPosition & 0x80) != 0) {
 			status = *system->seqPosition++;
-			param = *system->seqPosition++;
+			arg1 = *system->seqPosition++;
 		} else {
 			if (!system->runningStatus) {
 				if (gVerbose) {
-					printf("playEnv running status error %02x %02x\n", status,
-						system->runningStatus);
+					printf("playEnv running status error %02x %02x\n",
+						*system->seqPosition, system->runningStatus);
 				}
 
 				return 0;
 			}
 			status = system->runningStatus;
-			param = *system->seqPosition++;
+			arg1 = *system->seqPosition++;
 		}
-		outmsg = status | param << 8;
+		outmsg = status | arg1 << 8;
 		outsize = 3;
 		system->runningStatus = status;
 		cmd = status & 0xf0;
@@ -529,75 +604,75 @@ playEnv(struct MidiEnv *env, struct MidiSystem *system,
 		switch (cmd) {
 		case 0x80: {
 			outsize = 2;
-			value = 0;
+			arg2 = 0;
 		} break;
 		case 0x90: {
-			value = *system->seqPosition++;
+			arg2 = *system->seqPosition++;
 			outsize = 3;
-			outmsg |= value << 16;
+			outmsg |= arg2 << 16;
 		} break;
 		case 0xA0: {
 			struct SeqMidiCompBlock *compBlock = system->sqCompBlock;
 			unsigned int compEnt;
 			outsize = 3;
 			if (compBlock) {
-				compEnt = 2 * ((status & 0xF) | (param & 0xF0));
+				compEnt = 2 * ((status & 0xF) | (arg1 & 0xF0));
 				if (compEnt < compBlock->compTableSize) {
 					outmsg = compBlock->compTable[compEnt] |
 						(compBlock->compTable[compEnt + 1] << 8) |
-						(((8 * (param & 0xF)) | 7) << 16);
+						(((8 * (arg1 & 0xF)) | 7) << 16);
 				} else {
 					outsize = 0;
 				}
-				value = 0;
+				arg2 = 0;
 			} else {
-				value = *system->seqPosition++;
-				outmsg |= value << 16;
+				arg2 = *system->seqPosition++;
+				outmsg |= arg2 << 16;
 			}
 		} break;
 		case 0xB0: {
-			value = *system->seqPosition++;
-			outmsg |= value << 16;
+			arg2 = *system->seqPosition++;
+			outmsg |= arg2 << 16;
 			outsize = 3;
-			switch (param) {
+			switch (arg1) {
 			case 0x0: {
-				system->chParams[ch].bank = value & 0x7f;
+				system->chParams[ch].bank = arg2 & 0x7f;
 			} break;
 			case 0x1: {
-				system->chParams[ch].pitchModDepth = value & 0x7f;
+				system->chParams[ch].pitchModDepth = arg2 & 0x7f;
 			} break;
 			case 0x2: {
-				system->chParams[ch].ampModDepth = value & 0x7f;
+				system->chParams[ch].ampModDepth = arg2 & 0x7f;
 			} break;
 			case 0x5: {
-				system->chParams[ch].portamentTime = value & 0x7f;
+				system->chParams[ch].portamentTime = arg2 & 0x7f;
 			} break;
-			// case 0x6:
-			// case 0x26:
-			// case 0x62:
-			// case 0x63: {
-			//	// parseMark(env, system, subcmd, param, output);
-			// } break;
+			case 0x6:
+			case 0x26:
+			case 0x62:
+			case 0x63: {
+				parseMark(env, system, arg1, arg2, output);
+			} break;
 			case 0x7: {
-				system->unkPerChanVolume[ch] = value & 0x7f;
-				system->chParams[ch].volume = value & 0x7f;
-				value = (value & 0x80) | getChanVol(system, ch);
-				outmsg = (outmsg & 0xFFFF) | (value << 16);
+				system->unkPerChanVolume[ch] = arg2 & 0x7f;
+				system->chParams[ch].volume = arg2 & 0x7f;
+				arg2 = (arg2 & 0x80) | getChanVol(system, ch);
+				outmsg = (outmsg & 0xFFFF) | (arg2 << 16);
 			} break;
 			case 0xa: {
-				system->chParams[ch].pan = value & 0x7f;
+				system->chParams[ch].pan = arg2 & 0x7f;
 			} break;
 			case 0xb: {
-				system->chParams[ch].expression = value & 0x7f;
+				system->chParams[ch].expression = arg2 & 0x7f;
 			} break;
 			case 0x20: {
-				env->outPort[ch] = 1 << (value & 0x7f);
+				env->outPort[ch] = 1 << (arg2 & 0x7f);
 			} break;
 			case 0x40: {
-				system->chParams[ch].damper = value & 0x7f;
+				system->chParams[ch].damper = arg2 & 0x7f;
 			} break;
 			case 0x41: {
-				system->chParams[ch].portamentSwitch = value & 0x7f;
+				system->chParams[ch].portamentSwitch = arg2 & 0x7f;
 			} break;
 			default:
 				break;
@@ -605,22 +680,22 @@ playEnv(struct MidiEnv *env, struct MidiSystem *system,
 		} break;
 		case 0xC0: {
 			outsize = 2;
-			value = 0;
-			system->chParams[ch].program = param & 0x7f;
+			arg2 = 0;
+			system->chParams[ch].program = arg1 & 0x7f;
 		} break;
 		case 0xD0: {
 			outsize = 2;
-			value = 0;
+			arg2 = 0;
 		} break;
 		case 0xE0: {
-			value = *system->seqPosition++;
+			arg2 = *system->seqPosition++;
 			outsize = 3;
-			outmsg |= value << 16;
+			outmsg |= arg2 << 16;
 			system->chParams[ch].pitchBend = outmsg >> 8;
 		} break;
 		case 0xF0: {
 			outsize = 0;
-			value = 0;
+			arg2 = 0;
 			system->skipDelta = 0;
 
 			switch (status) {
@@ -631,7 +706,7 @@ playEnv(struct MidiEnv *env, struct MidiSystem *system,
 				seqJump(system);
 			} break;
 			case 0xFF: {
-				if (!parseMetaEvent(env, system, param)) {
+				if (!parseMetaEvent(env, system, arg1)) {
 					return 0;
 				}
 			} break;
@@ -656,7 +731,8 @@ playEnv(struct MidiEnv *env, struct MidiSystem *system,
 			sendChMsg(env, system, output, outmsg, outsize);
 		}
 
-		system->skipDelta = (param | value) & 0x80;
+		// MSB of arg indicates more statuses for this delta
+		system->skipDelta = (arg1 | arg2) & 0x80;
 
 		readDelta(system);
 		if (env->position < system->tick) {
@@ -833,13 +909,13 @@ Midi_SelectMidi(struct CslCtx *ctx, int port, int block)
 	}
 
 	for (int i = 0; i < 8; i++) {
-		system->loopStack[i].loopID = -1;
-		system->loopStack[i].loopCount = -1;
+		system->loopTable[i].loopID = -1;
+		system->loopTable[i].loopCount = -1;
 	}
 
 	system->sequenceData = (unsigned char *)midiData +
 		midiData->sequenceDataOffset;
-	system->usecPerQuarter = 500000;
+	system->usecPerQuarter = 500000; // 120bpm
 	system->relativeTempo = 256;
 	system->Division = midiData->Division;
 

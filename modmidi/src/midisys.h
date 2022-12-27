@@ -6,16 +6,25 @@
 
 #define Midi_GetSystem(env) (struct MidiSystem *)((env)->system)
 
-struct loopStackEntry {
+enum {
+	LoopFree = 0xFF,
+
+	MarkType_LoopStart = 0x0,
+	MarkType_LoopEnd = 0x1,
+	MarkType_MSB7 = 0x11,
+	MarkType_MSB14 = 0x12,
+};
+
+struct loopTableEntry {
 	unsigned char loopID;
 	unsigned char loopCount;
 	unsigned char runningStatus;
-	unsigned char unk2;
-	unsigned int unk3;
+	unsigned char skipDelta;
+	unsigned int tick;
 	unsigned char *seqPos;
 };
 
-struct markEntry {
+struct markState {
 	unsigned char type;
 	unsigned char data;
 	unsigned char dataMode;
@@ -52,7 +61,7 @@ struct MidiSystem {
 	unsigned char runningStatus;
 	unsigned char skipDelta;
 	unsigned char masterVolume;
-	struct markEntry markEntry;
+	struct markState mark;
 
 	unsigned short activeChan;
 
@@ -62,7 +71,7 @@ struct MidiSystem {
 
 	unsigned short unk211;
 	unsigned char channelParams[MidiNumMidiCh];
-	struct loopStackEntry loopStack[8];
+	struct loopTableEntry loopTable[8];
 };
 
 #endif // MIDISYS_H_
