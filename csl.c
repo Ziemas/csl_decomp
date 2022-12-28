@@ -1,8 +1,9 @@
 #include "csl.h"
 
 #include "cslmidi.h"
-#include "modhsyn.h"
 #include "modmidi.h"
+#include "sce_csl.h"
+#include "sce_modhsyn.h"
 #include "sce_modmidi.h"
 
 #include <ioman.h>

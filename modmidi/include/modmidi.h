@@ -1,6 +1,8 @@
 #ifndef MODMIDI_H_
 #define MODMIDI_H_
 
+#include "csl.h"
+
 #define Midi_EnvPortIdx(port) (2 * (port) + 1)
 #define Midi_SqPortIdx(port) (2 * (port))
 #define Midi_GetEnv(ctx, port) \
@@ -21,36 +23,11 @@ enum {
 	MidiInBufGroup = 0,
 	MidiOutBufGroup = 1,
 };
-
-struct CslBuffCtx {
-	int sema;
-	void *buff;
-};
-
-struct CslBuffGrp {
-	int buffNum;
-	struct CslBuffCtx *buffCtx;
-};
-
-struct CslCtx {
-	int buffGrpNum;
-	struct CslBuffGrp *buffGrp;
-	void *conf;
-	void *callBack;
-	char **extmod;
-};
-
 struct MidiLoopInfo {
 	unsigned char type;
 	unsigned char loopTimes;
 	unsigned char loopCount;
 	unsigned int loopId;
-};
-
-struct CslMidiStream {
-	unsigned int buffsize;
-	unsigned int validsize;
-	unsigned char data[];
 };
 
 #define MIDI_SYSTEM_MAX_SIZE (472)

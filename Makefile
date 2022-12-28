@@ -7,11 +7,11 @@
 # Review ps2sdk README & LICENSE files for further details.
 
 IOP_BIN = csl-play.irx
-IOP_OBJS = csl.o modmidi/src/modmidi.o
+IOP_OBJS = csl.o modmidi/src/modmidi.o modhsyn/src/modhsyn.o modhsyn/src/sdwrap.o
 IOP_LIBS =
 IOP_TABS = stdio.tab libsd.tab ioman.tab thbase.tab sysmem.tab sysclib.tab timrman.tab thsemap.tab modhsyn.tab modmidi.tab
 
-IOP_INCS += -Imodmidi/include/
+IOP_INCS += -Imodmidi/include/ -Imodhsyn/include/ -Icommon/include/
 IOP_CFLAGS += -Wall -fno-common -Wdeclaration-after-statement -Werror-implicit-function-declaration -std=c99
 
 all: $(IOP_BIN)
