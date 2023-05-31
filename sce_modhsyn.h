@@ -39,12 +39,12 @@ typedef struct {
 	unsigned char			maxPolyphony;
 #define sceHSynModeHSyn  0
 #define sceHSynModeSESyn 1
+        unsigned char			portMode;
 #define sceHSynTypeHSyn  0
 #define sceHSynTypeSESyn 1
 #define sceHSynTypeProgram 0
 #define sceHSynTypeTimbre  1
 #define sceHSynModeNone  0xff
-        unsigned char			portMode;
         unsigned char			waveType;
 	int						lfoWaveNum;
 	sceHSynUserLfoWave		*lfoWaveTbl;

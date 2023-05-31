@@ -48,9 +48,10 @@ PointerAlignment: Right
 ContinuationIndentWidth: 4
 IndentWidth: 4
 TabWidth: 4
-ColumnLimit: 80
+ColumnLimit: 100
 UseTab: Always
 SpaceAfterCStyleCast: false
 IncludeBlocks: Regroup
 SortIncludes: true
 KeepEmptyLinesAtTheStartOfBlocks: true
+ForEachMacros:   ['list_for_each', 'list_for_each_safe']

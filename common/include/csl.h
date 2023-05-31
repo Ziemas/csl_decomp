@@ -25,4 +25,8 @@ struct CslMidiStream {
 	unsigned char data[];
 };
 
+struct CslIdMonitor {
+	int system[48];
+};
+
 #endif // CSL_H_

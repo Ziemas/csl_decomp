@@ -6,9 +6,12 @@
 #define HSyn_EnvPortIdx(port) (2 * (port) + 1)
 #define HSyn_StrPortIdx(port) (2 * (port))
 #define HSyn_GetEnv(ctx, port) \
-	(struct HSynEnv*)((ctx)->buffGrp[0].buffCtx[HSyn_EnvPortIdx(port)].buff)
+	(struct HSynEnv *)((ctx)->buffGrp[0].buffCtx[HSyn_EnvPortIdx(port)].buff)
 
 enum {
+	HSynNoError = 0,
+	HSynError = -1,
+
 	HSynMinVelocity = 1,
 	HSynNumVelocity = 128,
 

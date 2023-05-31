@@ -273,9 +273,9 @@ _start()
 		sceMidi_Volume0db);
 	sceHSyn_SetVolume(&synth_ctx, 0, sceHSyn_Volume_0db);
 
-	fd = open("host:my_stream_dump", O_CREAT | O_RDWR);
-	write(fd, stream_buf, sizeof(stream_buf));
-	close(fd);
+	//fd = open("host:my_stream_dump", O_CREAT | O_RDWR);
+	//write(fd, stream_buf, sizeof(stream_buf));
+	//close(fd);
 
 	// -------------------------------------
 
@@ -305,9 +305,9 @@ _start()
 	sceMidi_MidiSetVolume(&scemidi_ctx, 0, sceMidi_MidiSetVolume_MasterVol,
 		sceMidi_Volume0db);
 
-	fd = open("host:sce_stream_dump", O_CREAT | O_RDWR);
-	write(fd, scestream_buf, sizeof(scestream_buf));
-	close(fd);
+	//fd = open("host:sce_stream_dump", O_CREAT | O_RDWR);
+	//write(fd, scestream_buf, sizeof(scestream_buf));
+	//close(fd);
 
 	return 0;
 }
