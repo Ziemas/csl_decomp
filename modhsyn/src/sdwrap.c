@@ -203,7 +203,7 @@ HSyn_ProcBatchEx(sceSdBatch *batch, unsigned int *returns, unsigned int num,
 }
 
 int
-HSyn_VoiceTrans(short chan, unsigned short mode, unsigned char *iopaddr,
+HSyn_VoiceTransW(short chan, unsigned short mode, unsigned char *iopaddr,
 	unsigned int *spuaddr, unsigned int size)
 {
 	struct HSyn_SdCall *call = getCallSlot();

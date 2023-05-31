@@ -5,6 +5,8 @@
 #include "sdwrap.h"
 #include "thbase.h"
 
+#include <stdio.h>
+
 unsigned int gTickRate;
 struct HSyn_VoiceStat *gVoiceStat;
 struct CslIdMonitor *gIdMonitor;
@@ -14,6 +16,9 @@ unsigned int gMaxVoices;
 
 unsigned int gSec;
 unsigned int gUsec;
+
+unsigned char gUnkLastCore;
+unsigned char gUnkLastVoice;
 
 unsigned char gFreeVoiceCount[2];
 unsigned int gPendingKon[2];
@@ -44,7 +49,7 @@ struct list_head gFreeVoices[2] = {
 	[1] = LIST_HEAD_INIT(gFreeVoices[1]),
 };
 
-static char sStatusExtraByte[8] = {
+static const char sStatusExtraByte[8] = {
 	0,
 	1,
 	1,
@@ -54,6 +59,21 @@ static char sStatusExtraByte[8] = {
 	1,
 	0,
 };
+
+int
+hasMonitor()
+{
+	if (gIdMonitor) {
+		return 0;
+	}
+
+	return -1;
+}
+
+static void
+updateMonitor()
+{
+}
 
 int
 voiceGC()
@@ -70,6 +90,9 @@ voiceGC()
 			voice->lastENVX = envx;
 		}
 	}
+
+	// TODO
+	return 0;
 }
 
 struct HSynVoice *
@@ -99,25 +122,88 @@ voiceAlloc(char attr)
 }
 
 static void
-statusNoteOn(struct HSynEnv *env, struct HSynChannel *chp, int port, unsigned char note,
+statusNoteOn(struct HSynEnv *env, struct HSynChannel *chan, int port, unsigned char note,
 	unsigned char velocity, unsigned char unk)
 {
+	HardSynthSampleSetChunk *sset;
+	HardSynthProgramParam *program;
+	HardSynthSplitBlock *split;
+
+	if (!chan->program) {
+		return;
+	}
+
+	sset = chan->bank->sampleSet;
+	program = chan->program;
+	split = (HardSynthSplitBlock *)((char *)program + program->splitBlockAddr);
+
+	if (!program->nSplit) {
+		return;
+	}
+
+	for (int i = 0; i < program->nSplit; i++) {
+		if (note < split[i].splitRangeLow || note >= split[i].splitBendRangeHigh) {
+			continue;
+		}
+
+		if (split->sampleSetIndex > sset->maxSampleSetNumber) {
+			continue;
+		}
+
+		if (sset->sampleSetOffsetAddr[split->sampleSetIndex] == -1) {
+			continue;
+		}
+	}
 }
 
 static void
-statusNoteOff(struct HSynChannel *chp, unsigned char note, unsigned char unk)
+statusNoteOff(struct HSynChannel *chan, unsigned char note, unsigned char unk)
 {
 }
 
 static void
-statusController(struct HSynEnv *env, int port, struct HSynChannel *chp, unsigned char controller,
+statusController(struct HSynEnv *env, int port, struct HSynChannel *chan, unsigned char controller,
 	unsigned char value)
 {
+	printf("controller %d %d\n", controller, value);
+	switch (controller) {
+	case 0:
+		chan->bankSel = value;
+		break;
+	case 7:
+		break;
+	}
 }
 
 static void
-statusProgramChange(struct HSynSystem *sys, struct HSynChannel *chp, unsigned char program)
+statusProgramChange(struct HSynSystem *sys, struct HSynChannel *chan, unsigned char program)
 {
+	HardSynthProgramParam *prog;
+	struct HSynBank *bank;
+	unsigned int offset;
+
+	prog = NULL;
+	bank = NULL;
+
+	if (chan->bankSel < 16) {
+		bank = &sys->bank[chan->bankSel];
+		if (bank->prog && bank->prog->maxProgramNumber >= program) {
+			offset = bank->prog->programOffsetAddr[program];
+			if (offset != -1) {
+				prog = (HardSynthProgramParam *)(((char *)&bank->prog) + offset);
+				if (!prog->nSplit) {
+					prog = NULL;
+				}
+			}
+		}
+	}
+
+	chan->program = prog;
+	if (prog) {
+		chan->bank = bank;
+	} else {
+		chan->bank = NULL;
+	}
 }
 
 static void
@@ -127,14 +213,14 @@ statusPitch(struct HSynChannel *chp, unsigned char phi, unsigned char plo)
 }
 
 static void
-doChanStatus(struct HSynEnv *env, int port, unsigned char channel, unsigned char b1,
+doChanStatus(struct HSynEnv *env, int port, unsigned char status, unsigned char b1,
 	unsigned char b2)
 {
 	struct HSynSystem *system = HSyn_GetSystem(env);
-	struct HSynChannel *chp = &system->channel[channel & 0xf];
-	unsigned char status = channel & 0xf0;
+	struct HSynChannel *chp = &system->channel[status & 0xf];
+	unsigned char cmd = status & 0xf0;
 
-	switch (status) {
+	switch (cmd) {
 	case 0x80:
 		statusNoteOff(chp, b1, 255);
 		break;
@@ -154,17 +240,32 @@ doChanStatus(struct HSynEnv *env, int port, unsigned char channel, unsigned char
 }
 
 static void
+runSEyn(struct HSynEnv *env, int port, unsigned char *pos, unsigned char *end)
+{
+}
+
+static void
 runHSyn(struct HSynEnv *env, int port, unsigned char *pos, unsigned char *end)
 {
-	unsigned char status, b1, b2;
-	for (status = *pos; pos != end; pos++) {
-
-		b1 = *pos++;
-		if (sStatusExtraByte[(status - 0x80) >> 4]) {
-			b2 = *pos++;
+	int status, b1, b2;
+	while (pos < end) {
+		if (*pos & 0x80) {
+			status = *pos++;
 		}
+		printf("status %x\n", status);
 
-		doChanStatus(env, port, status, b1, b2);
+		if (status < 0xf0) {
+			b1 = *pos++;
+
+			if (sStatusExtraByte[(status - 0x80) >> 4]) {
+				b2 = *pos++;
+			}
+
+			if (pos >= end)
+				return;
+
+			doChanStatus(env, port, status, b1, b2);
+		}
 	}
 }
 
@@ -192,25 +293,25 @@ selectPort(struct CslCtx *ctx, int port, struct HSynEnv **envOut, struct HSynSys
 static void
 resetVunk1(struct HSynVoice *voice)
 {
-	voice->unkcc = 0;
-	voice->unkd0 = 0;
-	voice->unkce = 0;
-	voice->unkd2 = 0;
-	voice->unkd4 = 0;
-	voice->unkd8 = 0;
-	voice->unkdc = 0;
+	voice->unkcc[0].byte0 = 0;
+	voice->unkcc[0].word4 = 0;
+	voice->unkcc[0].word2 = 0;
+	voice->unkcc[0].word6 = 0;
+	voice->unkcc[0].dword8 = 0;
+	voice->unkcc[0].dwordC = 0;
+	voice->unkcc[0].dword10 = 0;
 }
 
 static void
 resetVunk2(struct HSynVoice *voice)
 {
-	voice->unke0 = 0;
-	voice->unke4 = 0;
-	voice->unke2 = 0;
-	voice->unke6 = 0;
-	voice->unke8 = 0;
-	voice->unkec = 0;
-	voice->unkf0 = 0;
+	voice->unkcc[1].byte0 = 0;
+	voice->unkcc[1].word4 = 0;
+	voice->unkcc[1].word2 = 0;
+	voice->unkcc[1].word6 = 0;
+	voice->unkcc[1].dword8 = 0;
+	voice->unkcc[1].dwordC = 0;
+	voice->unkcc[1].dword10 = 0;
 }
 
 static void
@@ -271,7 +372,7 @@ resetVoices()
 			voice->splitBlock = NULL;
 			voice->sample = NULL;
 			voice->vagParam = NULL;
-			voice->unk78 = 0;
+			voice->sampleAddress = 0;
 			voice->lastENVX = 0;
 			voice->unk38 = 0;
 			voice->priority = 0;
@@ -312,11 +413,11 @@ resetVoices()
 static void
 resetChannel(struct HSynChannel *ch, struct HSynEnv *env)
 {
-	list_init(&ch->voiceList1);
-	list_init(&ch->voiceList3);
+	list_init(&ch->workingVoices);
+	list_init(&ch->deadVoices);
 	ch->volume = 128;
 	ch->expression = 128;
-	list_init(&ch->voiceList2);
+	list_init(&ch->dampedVoices);
 	ch->env = env;
 	ch->bank = NULL;
 	ch->damper = 0;
@@ -340,7 +441,7 @@ silenceChannel(struct HSynChannel *chp)
 {
 	struct HSynVoice *voice;
 
-	list_for_each_safe (voice, &chp->voiceList1, chanVoiceList) {
+	list_for_each_safe (voice, &chp->workingVoices, chanVoiceList) {
 		gPendingKoff[voice->coreId] |= 1 << voice->voiceId;
 		HSyn_SetParam(SD_VPARAM_ADSR2 | SD_VOICE(voice->coreId, voice->voiceId), 0xc021);
 	}
@@ -359,6 +460,8 @@ sceHSyn_AllSoundOff(struct CslCtx *ctx, unsigned int port)
 	for (int i = 0; i < 16; i++) {
 		silenceChannel(&system->channel[i]);
 	}
+
+	return 0;
 }
 
 int
@@ -412,6 +515,7 @@ HSyn_Init(struct CslCtx *ctx, unsigned int interval)
 
 	resetVoices();
 	// FIXME more
+	gUnkLastVoice = -1;
 	gReservedVoices[0] = 0;
 	gReservedVoices[1] = 0;
 	gOutputMode = 0;
@@ -444,12 +548,102 @@ checkTimeOverflow()
 }
 
 static void
+voiceProcVolume(struct HSynVoice *voice)
+{
+}
+
+static void
+voiceProcPitch(struct HSynVoice *voice)
+{
+}
+
+static void
 procSpuPendingSE(struct HSynVoice *voice)
+{
+}
+
+static unsigned int
+calcADSR1(struct HSynVoice *voice, HardSynthSampleParam *sample)
+{
+}
+
+static unsigned int
+calcADSR2(struct HSynVoice *voice, HardSynthSampleParam *sample)
 {
 }
 
 static void
 procSpuPendingHS(struct HSynVoice *voice)
+{
+	HardSynthSampleParam *sample;
+	iop_sys_clock_t clock;
+	int entry;
+
+	sample = voice->vagParam;
+	entry = SD_VOICE(voice->coreId, voice->voiceId);
+
+	voiceProcVolume(voice);
+
+	if (voice->vagParam) {
+		gNoiseVoices[voice->coreId] &= ~(1 << voice->voiceId);
+		voiceProcPitch(voice);
+		HSyn_SetAddr(SD_VADDR_SSA | entry, voice->sampleAddress + voice->vagParam->vagOffsetAddr);
+		HSyn_SetParam(SD_VPARAM_ADSR1 | entry, calcADSR1(voice, voice->sample));
+		HSyn_SetParam(SD_VPARAM_ADSR2 | entry, calcADSR2(voice, voice->sample));
+		if ((voice->vagParam->vagAttribute & 1) == 0) {
+			voice->unkFlags |= 1;
+		}
+	} else {
+		HSyn_SetCoreAttr(SD_CORE_NOISE_CLK, max(voice->note, 63));
+		gNoiseVoices[voice->coreId] |= BIT(voice->voiceId);
+	}
+
+	HSyn_SetSwitch(SD_SWITCH_NON | voice->coreId, gNoiseVoices[voice->coreId]);
+
+	if (sample->sampleSpuAttr & SCEHD_SPU_DIRECTSEND_L) {
+		gVmixDry[voice->coreId].left |= BIT(voice->voiceId);
+	} else {
+		gVmixDry[voice->coreId].left &= ~BIT(voice->voiceId);
+	}
+	if (sample->sampleSpuAttr & SCEHD_SPU_DIRECTSEND_R) {
+		gVmixDry[voice->coreId].right |= BIT(voice->voiceId);
+	} else {
+		gVmixDry[voice->coreId].right &= ~BIT(voice->voiceId);
+	}
+	if (sample->sampleSpuAttr & SCEHD_SPU_EFFECTSEND_L) {
+		gVmixWet[voice->coreId].left |= BIT(voice->voiceId);
+	} else {
+		gVmixWet[voice->coreId].left &= ~BIT(voice->voiceId);
+	}
+	if (sample->sampleSpuAttr & SCEHD_SPU_EFFECTSEND_R) {
+		gVmixWet[voice->coreId].right |= BIT(voice->voiceId);
+	} else {
+		gVmixWet[voice->coreId].right &= ~BIT(voice->voiceId);
+	}
+
+	HSyn_SetSwitch(SD_SWITCH_VMIXL | voice->coreId, gVmixDry[voice->coreId].left);
+	HSyn_SetSwitch(SD_SWITCH_VMIXR | voice->coreId, gVmixDry[voice->coreId].right);
+	HSyn_SetSwitch(SD_SWITCH_VMIXEL | voice->coreId, gVmixWet[voice->coreId].left);
+	HSyn_SetSwitch(SD_SWITCH_VMIXER | voice->coreId, gVmixWet[voice->coreId].right);
+	gPendingKon[voice->coreId] |= BIT(voice->voiceId);
+	gUnkLastCore = voice->voiceId;
+	gUnkLastVoice = voice->voiceId;
+
+	GetSystemTime(&clock);
+	SysClock2USec(&clock, &gSec, &gUsec);
+
+	voice->unk4b = 3;
+	voice->unkFlags &= ~8;
+
+	if (gVoiceStat) {
+		gVoiceStat->voice_state[voice->coreId][voice->voiceId] &= VoiceStat_State;
+		gVoiceStat->voice_state[voice->coreId][voice->voiceId] |= FIELD_PREP(VoiceStat_State,
+			VoiceStat_State_KeyOn);
+	}
+}
+
+static int
+procWorkingVoices()
 {
 }
 
@@ -492,8 +686,249 @@ procPendingVoices()
 	return pending_count;
 }
 
+static void
+procStream(struct CslBuffCtx *ctx, int bufCount)
+{
+	unsigned char *str_start, *str_end;
+	struct CslMidiStream *stream;
+	struct HSynEnv *env;
+
+	if (bufCount < 2) {
+		return;
+	}
+
+	for (int i = 0, port = 0; i < bufCount; i += 2, port++) {
+		stream = (struct CslMidiStream *)ctx[HSyn_StrPortIdx(port)].buff;
+		env = (struct HSynEnv *)ctx[HSyn_EnvPortIdx(port)].buff;
+
+		if (!stream || !env) {
+			continue;
+		}
+
+		str_start = &stream->data[0];
+		str_end = &stream->data[stream->validsize];
+
+		if (str_start >= str_end) {
+			continue;
+		}
+
+		stream->validsize = 0;
+
+		switch (env->portMode) {
+		case sceHSynModeSESyn:
+			runSEyn(env, port, str_start, str_end);
+			break;
+		case sceHSynModeHSyn:
+			runHSyn(env, port, str_start, str_end);
+			break;
+		}
+	}
+}
+
 int
 HSyn_ATick(struct CslCtx *ctx)
 {
+	int pending, working;
+
+	if (gUnkLastVoice == 0xff) {
+		if (checkTimeOverflow()) {
+			gUnkLastVoice = 0xff;
+		}
+	}
+
+	// We want to update the vmix state, but not trample
+	// user reserved bits. So get current state.
+	for (int i = 0; i < 2; i++) {
+		gVmixDry[i].left &= ~gReservedVoices[i];
+		gVmixDry[i].right &= ~gReservedVoices[i];
+		gVmixWet[i].left &= ~gReservedVoices[i];
+		gVmixWet[i].right &= ~gReservedVoices[i];
+
+		if (gReservedVoices[i]) {
+			gVmixDry[i].left |= HSyn_GetSwitch(SD_SWITCH_VMIXL | i) & gReservedVoices[i];
+			gVmixDry[i].right |= HSyn_GetSwitch(SD_SWITCH_VMIXR | i) & gReservedVoices[i];
+			gVmixWet[i].left |= HSyn_GetSwitch(SD_SWITCH_VMIXEL | i) & gReservedVoices[i];
+			gVmixWet[i].right |= HSyn_GetSwitch(SD_SWITCH_VMIXER | i) & gReservedVoices[i];
+		}
+	}
+
+	procStream(ctx->buffGrp[0].buffCtx, ctx->buffGrp[0].buffNum);
+
+	pending = procPendingVoices();
+	working = procWorkingVoices();
+
+	if (gVoiceStat) {
+		gVoiceStat->pendingVoiceCount = pending;
+		gVoiceStat->workVoiceCount = working;
+	}
+
+	if (hasMonitor() != 0) {
+		updateMonitor();
+	}
+
+	return HSynNoError;
+}
+
+static int
+validateChunk(unsigned int sig1, unsigned int sig2, const char *expected1, const char *expected2)
+{
+	char *s1;
+	char *s2;
+
+	s1 = &sig1;
+	s2 = &sig2;
+
+	for (int i = 0; i < 4; i++) {
+		if (s1[3 - i] != expected1[i]) {
+			return 0;
+		}
+		if (s2[3 - i] != expected2[i]) {
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+int
+HSyn_Load(struct CslCtx *ctx, int port, unsigned spu_addr, void *bankdata, int bankidx)
+{
+	HardSynthHeaderChunk *header;
+	HardSynthVersionChunk *ver;
+	struct HSynSystem *sys;
+	struct HSynBank *bank;
+	struct HSynEnv *env;
+
+	if (!selectPort(ctx, port, &env, &sys)) {
+		return HSynError;
+	}
+
+	if (env->waveType == sceHSynTypeSESyn) {
+		bankidx = 0;
+	}
+
+	bank = &sys->bank[bankidx];
+	bank->header = NULL;
+	bank->prog = NULL;
+	bank->sampleSet = NULL;
+	bank->sample = NULL;
+	bank->vagInfo = NULL;
+	bank->timbre = NULL;
+	bank->spuAddr = 0;
+
+	if (spu_addr && bankdata) {
+		ver = bankdata;
+		header = bankdata + ver->chunkSize;
+
+		bank->header = header;
+		if (header->programChunkAddr != -1) {
+			bank->prog = bankdata + header->programChunkAddr;
+		}
+
+		if (header->sampleSetChunkAddr != -1) {
+			bank->sampleSet = bankdata + header->sampleSetChunkAddr;
+		}
+
+		if (header->sampleChunkAddr != -1) {
+			bank->sample = bankdata + header->sampleChunkAddr;
+		}
+
+		if (header->vagInfoChunkAddr != -1) {
+			bank->vagInfo = bankdata + header->vagInfoChunkAddr;
+		}
+
+		if (ver->versionMajor >= 2) {
+			if (header->seTimbreChunkAddr != -1) {
+				bank->timbre = bankdata + header->seTimbreChunkAddr;
+			}
+		}
+
+		if (!validateChunk(ver->Creator, ver->Type, "SCEI", "Vers")) {
+			goto err;
+		}
+
+		if (!validateChunk(header->Creator, header->Type, "SCEI", "Head")) {
+			goto err;
+		}
+
+		if (bank->prog && !validateChunk(bank->prog->Creator, bank->prog->Type, "SCEI", "Prog")) {
+			goto err;
+		}
+
+		if (bank->sampleSet &&
+			!validateChunk(bank->sampleSet->Creator, bank->sampleSet->Type, "SCEI", "Sset")) {
+			goto err;
+		}
+
+		if (bank->sample &&
+			!validateChunk(bank->sample->Creator, bank->sample->Type, "SCEI", "Smpl")) {
+			goto err;
+		}
+
+		if (bank->vagInfo &&
+			!validateChunk(bank->vagInfo->Creator, bank->vagInfo->Type, "SCEI", "Vagi")) {
+			goto err;
+		}
+
+		if (bank->timbre &&
+			!validateChunk(bank->timbre->Creator, bank->timbre->Type, "SCEI", "Setb")) {
+			goto err;
+		}
+
+		bank->spuAddr = spu_addr;
+	}
+
+	for (int i = 0; i < 16; i++) {
+		if (sys->channel[i].bank == bank) {
+			sys->channel[i].bank = NULL;
+			sys->channel[i].program = NULL;
+		}
+	}
+
+	return HSynNoError;
+
+err:
+	printf("failed compare\n");
+
+	bank->header = NULL;
+	bank->prog = NULL;
+	bank->sampleSet = NULL;
+	bank->sample = NULL;
+	bank->vagInfo = NULL;
+	bank->timbre = NULL;
+	bank->spuAddr = 0;
+
+	return HSynError;
+}
+
+int
+HSyn_VoiceTrans(short chan, unsigned char *iopaddr, unsigned int *spuaddr, unsigned int size)
+{
+	unsigned int sent, aligned;
+
+	aligned = ALIGN_UP(size, 64);
+	HSyn_VoiceTransStatus(chan, 1);
+	sent = HSyn_VoiceTransW(chan, 0, iopaddr, spuaddr, size);
+	HSyn_VoiceTransStatus(chan, 1);
+
+	if (sent != aligned) {
+		return HSynError;
+	}
+
+	return HSynNoError;
+}
+
+int
+HSyn_SetVolume(struct CslCtx *ctx, unsigned int port, unsigned short volume)
+{
+	struct HSynSystem *sys;
+	struct HSynEnv *env;
+
+	if (!selectPort(ctx, port, &env, &sys)) {
+		return HSynError;
+	}
+
+	sys->volume = volume;
+
 	return HSynNoError;
 }

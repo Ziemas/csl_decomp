@@ -1,6 +1,7 @@
 #include "csl.h"
 
 #include "cslmidi.h"
+#include "modhsyn/include/modhsyn.h"
 #include "modmidi.h"
 #include "sce_csl.h"
 #include "sce_modhsyn.h"
@@ -25,24 +26,44 @@ struct tick_params {
 
 static struct tick_params tick_state;
 
-static struct CslCtx midi_ctx = {};
-static struct CslBuffGrp midi_grp[2] = {};
-static struct CslBuffCtx m_in_buf_ctx[2] = {}, m_out_buf_ctx[1] = {};
+static union {
+	struct CslMidiStream stream;
+	u8 buf[STREAMBUF_SIZE + sizeof(struct CslMidiStream)];
+} stream_buf = { .stream.buffsize = STREAMBUF_SIZE + sizeof(struct CslMidiStream),
+	.stream.validsize = 0 };
 
-static u8 stream_buf[STREAMBUF_SIZE + sizeof(struct CslMidiStream)];
 static struct MidiEnv midi_env = {};
+static struct CslBuffCtx m_in_buf_ctx[2] = { { .buff = NULL }, { .buff = &midi_env } };
+static struct CslBuffCtx m_out_buf_ctx[1] = { { .buff = stream_buf.buf } };
+static struct CslBuffGrp midi_grp[2] = { { .buffNum = 2, .buffCtx = m_in_buf_ctx },
+	{ .buffNum = 1, m_out_buf_ctx } };
+static struct CslCtx midi_ctx = { .buffGrpNum = 2, .buffGrp = midi_grp };
 
-static sceCslCtx scemidi_ctx = {};
-static sceCslBuffGrp scemidi_grp[2] = {};
-static sceCslBuffCtx scem_in_buf_ctx[2] = {}, scem_out_buf_ctx[1] = {};
+// decompiled
+static struct HSynEnv synth_env = {};
+static struct CslBuffCtx s_in_buf_ctx[2] = { { .buff = stream_buf.buf }, { .buff = &synth_env } };
+static struct CslBuffGrp synth_grp = { .buffNum = 2, .buffCtx = s_in_buf_ctx };
+static struct CslCtx synth_ctx = { .buffGrpNum = 1, .buffGrp = &synth_grp };
 
-static u8 scestream_buf[STREAMBUF_SIZE + sizeof(sceCslMidiStream)];
+static union {
+	sceCslMidiStream stream;
+	u8 buf[STREAMBUF_SIZE + sizeof(sceCslMidiStream)];
+} sce_stream_buf = { .stream.buffsize = STREAMBUF_SIZE + sizeof(struct CslMidiStream),
+	.stream.validsize = 0 };
+
+// sce module
 static sceMidiEnv scemidi_env = {};
+static sceCslBuffCtx scem_in_buf_ctx[2] = { { .buff = NULL }, { .buff = &scemidi_env } };
+static sceCslBuffCtx scem_out_buf_ctx[1] = { { .buff = sce_stream_buf.buf } };
+static sceCslBuffGrp scemidi_grp[2] = { { .buffNum = 2, .buffCtx = scem_in_buf_ctx },
+	{ .buffNum = 1, scem_out_buf_ctx } };
+static sceCslCtx scemidi_ctx = { .buffGrpNum = 2, .buffGrp = scemidi_grp };
 
-static sceCslCtx synth_ctx = {};
-static sceCslBuffGrp synth_grp = {};
-static sceCslBuffCtx s_in_buf_ctx[2] = {};
-static sceHSynEnv synth_env = {};
+// sce module
+static sceHSynEnv scesynth_env = {};
+static sceCslBuffCtx sces_in_buf_ctx[2] = { { .buff = stream_buf.buf }, { .buff = &scesynth_env } };
+static sceCslBuffGrp scesynth_grp = { .buffNum = 2, .buffCtx = sces_in_buf_ctx };
+static sceCslCtx scesynth_ctx = { .buffGrpNum = 1, .buffGrp = &scesynth_grp };
 
 static s32 *hd, *sq, *bd;
 
@@ -54,7 +75,7 @@ tick_thread(void *param)
 	while (1) {
 		WaitSema(p->semaphore);
 		Midi_ATick(&midi_ctx);
-		sceHSyn_ATick(&synth_ctx);
+		HSyn_ATick(&synth_ctx);
 	}
 }
 
@@ -113,58 +134,13 @@ init()
 #define TM_NO_GATE (0)
 	SetupHardTimer(timer_id, TC_SYSCLOCK, TM_NO_GATE, 1);
 
-	// ---------------
-	//
-	scemidi_ctx.buffGrpNum = 2; // 2 for modmidi
-	scemidi_ctx.buffGrp = scemidi_grp;
-
-	scemidi_grp[0].buffNum = 1 * 2; // 1 input port
-	scemidi_grp[0].buffCtx = scem_in_buf_ctx;
-	scem_in_buf_ctx[0].buff = NULL;			// SEQ data
-	scem_in_buf_ctx[1].buff = &scemidi_env; // midi env
-
-	scemidi_grp[1].buffNum = 1; // 1 output port
-	scemidi_grp[1].buffCtx = scem_out_buf_ctx;
-	scem_out_buf_ctx[0].buff = scestream_buf; // output stream for hsyn
-	((sceCslMidiStream *)scestream_buf)->buffsize = STREAMBUF_SIZE +
-		sizeof(sceCslMidiStream);
-	((sceCslMidiStream *)scestream_buf)->validsize = 0;
-
-	// ---------------
-
-	midi_ctx.buffGrpNum = 2; // 2 for modmidi
-	midi_ctx.buffGrp = midi_grp;
-
-	midi_grp[0].buffNum = 1 * 2; // 1 input port
-	midi_grp[0].buffCtx = m_in_buf_ctx;
-	m_in_buf_ctx[0].buff = NULL;	  // SEQ data
-	m_in_buf_ctx[1].buff = &midi_env; // midi env
-
-	midi_grp[1].buffNum = 1; // 1 output port
-	midi_grp[1].buffCtx = m_out_buf_ctx;
-	m_out_buf_ctx[0].buff = stream_buf; // output stream for hsyn
-	((struct CslMidiStream *)stream_buf)->buffsize = STREAMBUF_SIZE +
-		sizeof(struct CslMidiStream);
-	((struct CslMidiStream *)stream_buf)->validsize = 0;
-
-	synth_ctx.buffGrpNum = 1;
-	synth_ctx.buffGrp = &synth_grp;
-	synth_grp.buffNum = 1 * 2; // 1 input port
-	synth_grp.buffCtx = s_in_buf_ctx;
-	s_in_buf_ctx[0].buff = stream_buf; // input from midi
-	s_in_buf_ctx[1].buff = &synth_env; // synth_env
-
-	ret = sceHSyn_Init(&synth_ctx, usec_per_tick);
+	// ret = sceHSyn_Init(&scesynth_ctx, usec_per_tick);
+	ret = HSyn_Init(&synth_ctx, usec_per_tick);
 	if (ret != sceHSynNoError) {
 		printf("hsyn init err %d\n", ret);
 	}
-	ret = Midi_Init(&midi_ctx, usec_per_tick);
-	if (ret != sceMidiNoError) {
-		printf("midi init err %d\n", ret);
-	}
 
-	// -------------
-	ret = sceMidi_Init(&scemidi_ctx, usec_per_tick);
+	ret = Midi_Init(&midi_ctx, usec_per_tick);
 	if (ret != sceMidiNoError) {
 		printf("midi init err %d\n", ret);
 	}
@@ -226,7 +202,7 @@ _start()
 	printf("name %s\n", header->name);
 	hd = (u8 *)header + header->header_byte_count;
 
-	ret = sceHSyn_Load(&synth_ctx, 0, 0x6000, hd, 0);
+	ret = HSyn_Load(&scesynth_ctx, 0, 0x6000, hd, 0);
 	if (ret != sceHSynNoError) {
 		printf("hsyn load err %d\n", ret);
 	}
@@ -236,7 +212,7 @@ _start()
 	printf("name %s\n", header->name);
 	bd = (u8 *)header + header->header_byte_count;
 
-	ret = sceHSyn_VoiceTrans(1, bd, 0x6000 + total, header->entry_byte_count);
+	ret = HSyn_VoiceTrans(1, bd, 0x6000 + total, header->entry_byte_count);
 	if (ret != sceHSynNoError) {
 		printf("hsyn err %d\n", ret);
 	}
@@ -269,45 +245,14 @@ _start()
 		printf("midi err %d\n", ret);
 	}
 
-	Midi_MidiSetVolume(&midi_ctx, 0, sceMidi_MidiSetVolume_MasterVol,
-		sceMidi_Volume0db);
-	sceHSyn_SetVolume(&synth_ctx, 0, sceHSyn_Volume_0db);
+	Midi_MidiSetVolume(&midi_ctx, 0, sceMidi_MidiSetVolume_MasterVol, sceMidi_Volume0db);
+	HSyn_SetVolume(&scesynth_ctx, 0, sceHSyn_Volume_0db);
 
-	//fd = open("host:my_stream_dump", O_CREAT | O_RDWR);
-	//write(fd, stream_buf, sizeof(stream_buf));
-	//close(fd);
+	// fd = open("host:my_stream_dump", O_CREAT | O_RDWR);
+	// write(fd, stream_buf, sizeof(stream_buf));
+	// close(fd);
 
 	// -------------------------------------
-
-	scem_in_buf_ctx[0].buff = sq;
-	ret = sceMidi_Load(&scemidi_ctx, 0);
-	if (ret != sceMidiNoError) {
-		printf("midi load err %d\n", ret);
-	}
-
-	for (int ch = 0; ch < sceMidiNumMidiCh; ch++) {
-		scemidi_env.outPort[ch] = 1 << 0;
-	}
-
-	ret = sceMidi_SelectMidi(&scemidi_ctx, 0, 0);
-	if (ret != sceMidiNoError) {
-		printf("midi 1 err %d\n", ret);
-	}
-	ret = sceMidi_MidiSetLocation(&scemidi_ctx, 0, 0);
-	if (ret != sceMidiNoError) {
-		printf("midi err %d\n", ret);
-	}
-	ret = sceMidi_MidiPlaySwitch(&scemidi_ctx, 0, sceMidi_MidiPlayStart);
-	if (ret != sceMidiNoError) {
-		printf("midi err %d\n", ret);
-	}
-
-	sceMidi_MidiSetVolume(&scemidi_ctx, 0, sceMidi_MidiSetVolume_MasterVol,
-		sceMidi_Volume0db);
-
-	//fd = open("host:sce_stream_dump", O_CREAT | O_RDWR);
-	//write(fd, scestream_buf, sizeof(scestream_buf));
-	//close(fd);
 
 	return 0;
 }

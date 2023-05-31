@@ -16,7 +16,7 @@ unsigned short HSyn_Pitch2Note(unsigned short center_note,
 int HSyn_ProcBatch(sceSdBatch *batch, unsigned int returns[], unsigned int num);
 int HSyn_ProcBatchEx(sceSdBatch *batch, unsigned int returns[],
 	unsigned int num, unsigned int voice);
-int HSyn_VoiceTrans(short chan, unsigned short mode, unsigned char *iopaddr,
+int HSyn_VoiceTransW(short chan, unsigned short mode, unsigned char *iopaddr,
 	unsigned int *spuaddr, unsigned int size);
 int HSyn_BlockTrans(short chan, unsigned short mode, unsigned char *iopaddr,
 	unsigned int size);

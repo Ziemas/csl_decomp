@@ -77,5 +77,9 @@ struct HSyn_DebugInfo {
 
 int HSyn_Init(struct CslCtx *ctx, unsigned int interval);
 int HSyn_ATick(struct CslCtx *ctx);
+int HSyn_Load(struct CslCtx *ctx, int port, unsigned spu_addr, void *header, int bank);
+
+int HSyn_VoiceTrans(short chan, unsigned char *iopaddr, unsigned int *spuaddr, unsigned int size);
+int HSyn_SetVolume(struct CslCtx *ctx, unsigned int port, unsigned short volume);
 
 #endif // MODHSYN_H_

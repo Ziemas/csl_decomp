@@ -7,6 +7,39 @@
 
 #define HSyn_GetSystem(env) (struct HSynSystem *)((env)->system)
 
+#define ALIGN_UP(x, a) (((x) + ((a)-1)) & ~((a)-1))
+#define ALIGN_DOWN(x, a) ((x) & ~((a)-1))
+
+#define BIT(b) (1 << (b))
+#define MASK(x) (BIT(x) - 1)
+#define GENMASK(msb, lsb) ((BIT((msb + 1) - (lsb)) - 1) << (lsb))
+#define _FIELD_LSB(field) ((field) & ~(field - 1))
+#define FIELD_PREP(field, val) ((val) * (_FIELD_LSB(field)))
+#define FIELD_GET(field, val) (((val) & (field)) / _FIELD_LSB(field))
+
+#define VoiceStat_Valid BIT(7)
+#define VoiceStat_State GENMASK(6, 4)
+#define VoiceStat_Port GENMASK(3, 0)
+
+#define VoiceStat_State_Free 0
+#define VoiceStat_State_Pending 1
+#define VoiceStat_State_KeyOn 2
+#define VoiceStat_State_KeyOff 3
+
+#define max(a, b)               \
+	({                          \
+		__typeof__(a) _a = (a); \
+		__typeof__(b) _b = (b); \
+		_a > _b ? _a : _b;      \
+	})
+
+#define min(a, b)               \
+	({                          \
+		__typeof__(a) _a = (a); \
+		__typeof__(b) _b = (b); \
+		_a < _b ? _a : _b;      \
+	})
+
 enum {
 	sceHSynModeHSyn = 0,
 	sceHSynModeSESyn = 1,
@@ -45,6 +78,7 @@ struct HSynVoice {
 	unsigned char voiceId;
 	unsigned char note;
 	unsigned int unk44;
+	unsigned char unk4b;
 	unsigned char unk53;
 	char unk55;
 	unsigned char unk56;
@@ -53,29 +87,13 @@ struct HSynVoice {
 	char waveType;
 	struct HSynSystem *system;
 	struct channelParams *channel;
-	struct sceHardSynthProgramParam *program;
-	struct sceHardSynthSplitBlock *splitBlock;
-	struct sceHardSynthSampleParam *sample;
-	struct sceHardSynthVagParam *vagParam;
-	int unk78;
+	HardSynthProgramParam *program;
+	HardSynthSplitBlock *splitBlock;
+	HardSynthSampleParam *sample;
+	HardSynthVagParam *vagParam;
+	int sampleAddress;
 
-	//----- substruct array?
-	unsigned char unkcc;
-	unsigned short unkce;
-	unsigned short unkd0;
-	unsigned short unkd2;
-	unsigned int unkd4;
-	unsigned int unkd8;
-	unsigned int unkdc;
-
-	// ---
-	unsigned char unke0;
-	unsigned short unke2;
-	unsigned short unke4;
-	unsigned short unke6;
-	unsigned int unke8;
-	unsigned int unkec;
-	unsigned int unkf0;
+	struct HSynUnkVstruct unkcc[2];
 
 	// ---
 	unsigned int unkf4;
@@ -96,10 +114,15 @@ struct HSynVoice {
 };
 
 struct HSynChannel {
-	struct list_head voiceList1;
-	struct list_head voiceList2;
-	struct list_head voiceList3;
-	sceHardSynthProgramParam *program;
+	union {
+		struct {
+			struct list_head workingVoices;
+			struct list_head dampedVoices;
+			struct list_head deadVoices;
+		};
+		struct list_head voiceLists[3];
+	};
+	HardSynthProgramParam *program;
 	struct HSynEnv *env;
 	struct HSynBank *bank;
 	short unk7;
@@ -122,12 +145,12 @@ struct HSynChannel {
 };
 
 struct HSynBank {
-	struct HardSynthHeaderChunk *header;
-	struct HardSynthProgramChunk *prog;
-	struct HardSynthSampleSetChunk *sampleSet;
-	struct HardSynthSampleChunk *sample;
-	struct HardSynthVagInfoChunk *vagInfo;
-	struct HardSynthSeTimbreChunk *timbre;
+	HardSynthHeaderChunk *header;
+	HardSynthProgramChunk *prog;
+	HardSynthSampleSetChunk *sampleSet;
+	HardSynthSampleChunk *sample;
+	HardSynthVagInfoChunk *vagInfo;
+	HardSynthSeTimbreChunk *timbre;
 	unsigned int spuAddr;
 };
 
